@@ -1,0 +1,18 @@
+[package]
+name = "ss9k"
+version = "0.1.0"
+edition = "2024"
+description = "SuperScreecher9000 - Screech at your computer. It listens."
+
+[dependencies]
+rdev = "0.5"          # Global hotkey capture
+cpal = "0.15"         # Audio capture
+enigo = "0.2"         # Type at cursor
+anyhow = "1.0"        # Error handling
+dirs = "5.0"          # Cross-platform paths
+serde = { version = "1.0", features = ["derive"] }  # Serialization
+toml = "0.8"          # Config file format
+reqwest = { version = "0.12", features = ["blocking"] }  # HTTP for model download
+indicatif = "0.17"    # Progress bars
+whisper-rs = { version = "0.14", features = ["vulkan"] }  # Vulkan GPU (use cuda/metal features on appropriate systems)
+rubato = "0.15"       # Audio resampling (44.1kHz → 16kHz)

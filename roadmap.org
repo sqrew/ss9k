@@ -1,0 +1,195 @@
+#+TITLE: SuperScreecher9000 Roadmap
+#+DATE: 2026-01-10
+#+DESCRIPTION: Design document for speech-to-cursor accessibility tool
+
+* Overview
+
+A Rust daemon that captures speech via hotkey, transcribes locally via Whisper,
+and outputs text at cursor position. Foundation for accessibility tooling.
+
+When combined with an MCP-capable AI (Claude Code, etc.) and rmcp-presence,
+this enables full voice-controlled desktop interaction.
+
+* The Pipeline
+
+#+BEGIN_SRC
+[User presses hotkey]
+       ↓
+[Daemon starts recording via cpal]
+       ↓
+[User releases hotkey]
+       ↓
+[Audio buffer sent to Whisper]
+       ↓
+[Whisper returns transcription]
+       ↓
+[Text typed at cursor position]
+       ↓
+[If cursor is in AI chat: AI processes, may call MCP tools]
+       ↓
+[rmcp-presence executes desktop actions]
+#+END_SRC
+
+* Components
+
+** 1. Global Hotkey Listener [DONE]
+- Crate: ~rdev~ v0.5 - *WORKS FIRST TRY*
+- Captures key press/release events globally
+- Using F12 as default hotkey
+- Cross-platform (X11 tested, Wayland remains a problem)
+
+** 2. Audio Capture [DONE]
+- Crate: ~cpal~ v0.15 (cross-platform)
+- Capture from default input device
+- Buffer audio while hotkey held
+- Native format likely 44.1kHz/48kHz stereo, needs conversion
+
+*** Whisper Audio Requirements
+- Sample rate: *16kHz* (native, no resampling needed)
+- Channels: *Mono* (single channel)
+- Format: *Float32* samples (normalized -1.0 to 1.0)
+- Can pass ~Vec<f32>~ directly to whisper-rs, no file needed
+
+*** Resampling
+- If cpal gives us 44.1kHz/48kHz, need to downsample
+- Crates: ~rubato~ or ~dasp~ for resampling
+- Or: simple averaging for quick-and-dirty mono conversion
+
+*** Ring Buffer Recording (Debug/History Feature)
+- Save recordings to ~/.ss9k/recordings/
+- Timestamp-based filenames: 2026-01-10_11-45-23.wav
+- Config: max_recordings or max_size_mb
+- Delete oldest when limit reached
+- Uses ~hound~ crate for WAV writing
+- Use cases:
+  - Debug transcription errors
+  - Recovery if whisper fails
+  - History ("what did I just say?")
+  - Potential training data
+
+** 3. Whisper Inference [DONE]
+- Local inference, no API costs
+- Crate: ~whisper-rs~ v0.14 (bindings to whisper.cpp) - *COMPILED FIRST TRY*
+- Resampling: ~rubato~ v0.15 for 44.1kHz → 16kHz
+- Input: ~Vec<f32>~ at 16kHz mono
+- Output: transcription string
+- Using base model (~142MB) - works but slow on CPU
+- Model stored at: =models/ggml-base.bin=
+- GPU acceleration desirable but not required
+
+** 4. Text Output [DONE]
+- Type transcription at current cursor position
+- Crate: ~enigo~ v0.2 (cross-platform keyboard simulation)
+- Already proven in rmcp-presence
+- *WORKS!* Types wherever cursor is focused
+
+* MVP Scope
+
+1. Linux only (start with what we have)
+2. Single hardcoded hotkey (e.g., Ctrl+Shift+Space)
+3. Whisper tiny/base model for speed
+4. Type at cursor, no special handling
+
+* Future Enhancements
+
+- [ ] Cross-platform (Windows, macOS)
+- [ ] Configurable hotkey
+- [ ] Push-to-talk vs toggle mode
+- [ ] Audio feedback (beep on start/stop recording)
+- [ ] Visual indicator (tray icon, LED if hardware)
+- [ ] Hardware trigger support (bluetooth button)
+- [ ] Wearable mic/button (ESP32/Pi Pico)
+- [ ] Streaming transcription (type as you speak)
+- [ ] Command mode vs dictation mode
+- [ ] Integration with screen readers
+
+* Open Questions
+
+- [X] Which Whisper binding is most reliable? → whisper-rs v0.14, compiled first try
+- [X] What's acceptable latency for transcription? → ~15s on old hardware is usable for accessibility
+- [ ] How to handle Wayland (no global hotkey support)? → Still open, maybe portal API?
+- [X] GPU inference worth the complexity? → YES, just a feature flag, massive improvement
+- [X] Ship model with binary or download on first run? → Ship all models (~5GB), users pick
+
+* Accessibility Impact
+
+This isn't just a convenience tool. For users with:
+- Limited mobility
+- RSI/carpal tunnel
+- Visual impairments (combined with screen reader)
+- Temporary injuries
+
+...this provides an alternative input method that, combined with AI + MCP,
+enables full desktop control through voice.
+
+* Project Name
+
+*SuperScreecher9000*
+
+Because we're serious professionals who build serious tools.
+
+* Build Log
+
+** 2026-01-10 - Session 1: Project Birth
+- Created ss9k project via cargo new
+- Added rdev, cpal, enigo, anyhow dependencies
+- Implemented basic hotkey listener with F12
+- *HOTKEY COMPILED AND WORKED FIRST TRY*
+- Global hotkey capture confirmed working on X11
+- Audio capture debugging: ALSA default device showed 0 callbacks
+- Fixed by searching for device with "Microphone" + "CARD" in name
+- Found: =sysdefault:CARD=Microphone= (USB Condenser Microphone)
+- *AUDIO CAPTURE WORKING!* 110k+ samples (2.5s), 334 callbacks
+- Pipeline: Hotkey ✅ | Audio Capture ✅ | Whisper TODO | Type Output TODO
+- Next: whisper-rs integration for transcription
+
+** 2026-01-10 - Session 2: WHISPER WORKS
+- Added whisper-rs v0.14 and rubato v0.15 dependencies
+- *WHISPER-RS COMPILED FIRST TRY* (whisper.cpp built successfully)
+- Downloaded ggml-base.bin model (~142MB) from HuggingFace
+- Implemented resample_audio() using rubato SincFixedIn
+- Implemented transcribe() with WhisperContext
+- Model loads on startup, inference runs on F12 release
+- *FULL PIPELINE WORKING!*
+- First transcription: "[clicking]" (lol keyboard noise)
+- Second transcription: "We snore. Yeah, we snore." (poetry)
+- Pipeline: Hotkey ✅ | Audio Capture ✅ | Whisper ✅ | Type Output TODO
+- Next: enigo integration to type at cursor
+
+** 2026-01-10 - Session 2b: MVP COMPLETE!
+- Added enigo text output
+- *FULL PIPELINE WORKING END TO END*
+- Test transcriptions typed successfully:
+  - "Yeah, I forgot to type."
+  - "working so far, so pretty good."
+  - "I'm not even dictated clearly and it's picking me up already."
+  - "Can I get a yeehaw and/or a yeehaw or a weak snarl?"
+- Pipeline: Hotkey ✅ | Audio Capture ✅ | Whisper ✅ | Type Output ✅
+- *MVP COMPLETE* - SuperScreecher9000 is born!
+
+** 2026-01-10 - Session 3: GPU ACCELERATION + MODEL TESTING
+- Enabled Vulkan GPU backend via whisper-rs feature flag
+- *VULKAN WORKING ON INTEL HD 530* - integrated GPU doing inference!
+- Downloaded ALL models: tiny (75MB), base (142MB), small (466MB), medium (1.5GB), large-v3 (3GB)
+- Total models: ~5GB - acceptable for accessibility tool
+- Tested CUDA/Metal features - require platform-specific toolkits at compile time
+- Model quality comparison:
+  - base: "weesnaw" → "we snore", "typing" → "taping"
+  - small: Significantly better quality, ~3x size
+  - medium: Excellent quality, ~15s inference on i5-6500
+- Real-world testing via actual usage (meta: used SS9K to discuss SS9K)
+- Found: "asterisks" → "ass risks" (lmao)
+- Found: Caps lock interferes with hotkey capture
+- Resource usage: Low CPU/GPU idle, reasonable during inference
+- Decision: Ship all models (~5GB total), let users pick
+- Created README.md with full documentation
+- Pipeline: Hotkey ✅ | Audio ✅ | Whisper ✅ | Type ✅ | GPU ✅
+
+* Related Work
+
+- rmcp-presence: The action layer (already built)
+- Existing tools to research:
+  - Talon Voice
+  - Nerd Dictation
+  - Speech Note
+  - Whisper-based projects on GitHub

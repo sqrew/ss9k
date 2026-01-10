@@ -1,0 +1,22 @@
+# SuperScreecher9000 Configuration
+# Copy to one of:
+#   ~/.config/ss9k/config.toml (Linux/macOS)
+#   ~/.ss9k/config.toml (fallback)
+#   ./config.toml (development)
+
+# Model to use: tiny, base, small, medium, large
+# Larger = more accurate but slower
+model = "small"
+
+# Language for transcription
+# Use ISO 639-1 codes: en, es, fr, de, ja, zh, etc.
+language = "en"
+
+# Number of threads for whisper inference
+# More threads = faster on multi-core CPUs
+threads = 4
+
+# Specific audio device name (partial match)
+# Leave empty for auto-detection
+# Example: "Microphone" or "Blue Yeti"
+device = ""
