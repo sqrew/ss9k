@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 description = "SuperScreecher9000 - Screech at your computer. It listens."
 
+[features]
+default = []          # CPU-only by default (CI-friendly)
+vulkan = ["whisper-rs/vulkan"]   # Linux/Windows GPU
+cuda = ["whisper-rs/cuda"]       # NVIDIA GPU
+metal = ["whisper-rs/metal"]     # macOS GPU
+
 [dependencies]
 rdev = "0.5"          # Global hotkey capture
 cpal = "0.15"         # Audio capture
@@ -14,5 +20,5 @@ serde = { version = "1.0", features = ["derive"] }  # Serialization
 toml = "0.8"          # Config file format
 reqwest = { version = "0.12", features = ["blocking"] }  # HTTP for model download
 indicatif = "0.17"    # Progress bars
-whisper-rs = { version = "0.14", features = ["vulkan"] }  # Vulkan GPU (use cuda/metal features on appropriate systems)
+whisper-rs = "0.14"   # Whisper inference (add vulkan/cuda/metal feature for GPU)
 rubato = "0.15"       # Audio resampling (44.1kHz → 16kHz)
