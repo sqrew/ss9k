@@ -13,21 +13,21 @@ The one thing we're focused on right now.
 * NEXT
 After NOW is done.
 
-- [ ] Add system control commands (THE DIFFERENTIATOR)
-  - [ ] Volume up/down
-  - [ ] Mute toggle
-  - [ ] Media play/pause
-  - [ ] Media next/prev
-  - [ ] Focus window by name ("switch to firefox")
-  - [ ] Launch app ("open terminal")
+- [X] Add system control commands (THE DIFFERENTIATOR)
+  - [X] Volume up/down
+  - [X] Mute toggle
+  - [X] Media play/pause
+  - [X] Media next/prev
+  - [X] Focus window by name (via custom commands + wmctrl/i3-msg)
+  - [X] Launch app (via custom commands)
 
 * SOON
 Quality of life improvements.
 
-- [ ] Fix async queue (recording blocks while processing)
+- [X] Fix async queue (recording blocks while processing)
 - [ ] Add audio feedback (beep on record start/stop)
 - [ ] Add visual indicator (tray icon?)
-- [ ] Configurable hotkey (not just F12)
+- [X] Configurable hotkey (not just F12)
 - [X] Hotkey mode: hold vs toggle
   - [X] Hold mode (default) - press to start, release to stop
   - [X] Toggle mode - press to start, press again to stop
@@ -46,7 +46,7 @@ Future features, no rush.
   - [ ] Wake phrase detection
   - [ ] Works alongside hotkey (both available)
 - [ ] Context-aware commands (different commands per app)
-- [ ] Streaming transcription (type as you speak)
+- [ ] Streaming transcription (type as you speak) - maybe unnecessary with decent GPU
 - [ ] Hardware trigger support (bluetooth button)
 - [ ] Wearable mic/button (ESP32/Pi Pico)
 - [ ] macOS support (need tester first)

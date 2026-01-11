@@ -6,10 +6,12 @@ use indicatif::{ProgressBar, ProgressStyle};
 use rdev::{listen, Event, EventType, Key as RdevKey};
 use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
@@ -35,10 +37,15 @@ pub struct Config {
     pub threads: usize,
     /// Specific device name (empty = auto-detect)
     pub device: String,
+    /// Hotkey to trigger recording (e.g., "F12", "ScrollLock", "Pause")
+    pub hotkey: String,
     /// Hotkey mode: "hold" (press to start, release to stop) or "toggle" (press to start, press again to stop)
     pub hotkey_mode: String,
     /// Timeout in seconds for toggle mode (0 = no timeout)
     pub toggle_timeout_secs: u64,
+    /// Custom voice commands mapping phrase -> shell command
+    #[serde(default)]
+    pub commands: HashMap<String, String>,
 }
 
 impl Default for Config {
@@ -48,9 +55,51 @@ impl Default for Config {
             language: "en".to_string(),
             threads: 4,
             device: String::new(),
+            hotkey: "F12".to_string(),
             hotkey_mode: "hold".to_string(),
             toggle_timeout_secs: 0,
+            commands: HashMap::new(),
         }
+    }
+}
+
+/// Parse a hotkey string into an rdev::Key
+fn parse_hotkey(s: &str) -> Option<RdevKey> {
+    match s.to_uppercase().as_str() {
+        // Function keys
+        "F1" => Some(RdevKey::F1),
+        "F2" => Some(RdevKey::F2),
+        "F3" => Some(RdevKey::F3),
+        "F4" => Some(RdevKey::F4),
+        "F5" => Some(RdevKey::F5),
+        "F6" => Some(RdevKey::F6),
+        "F7" => Some(RdevKey::F7),
+        "F8" => Some(RdevKey::F8),
+        "F9" => Some(RdevKey::F9),
+        "F10" => Some(RdevKey::F10),
+        "F11" => Some(RdevKey::F11),
+        "F12" => Some(RdevKey::F12),
+        // Lock keys (good for dedicated hotkeys)
+        "SCROLLLOCK" | "SCROLL_LOCK" | "SCROLL" => Some(RdevKey::ScrollLock),
+        "PAUSE" | "BREAK" => Some(RdevKey::Pause),
+        "PRINTSCREEN" | "PRINT_SCREEN" | "PRTSC" => Some(RdevKey::PrintScreen),
+        "INSERT" | "INS" => Some(RdevKey::Insert),
+        "HOME" => Some(RdevKey::Home),
+        "END" => Some(RdevKey::End),
+        "PAGEUP" | "PAGE_UP" | "PGUP" => Some(RdevKey::PageUp),
+        "PAGEDOWN" | "PAGE_DOWN" | "PGDN" => Some(RdevKey::PageDown),
+        // Numpad
+        "NUM0" | "NUMPAD0" => Some(RdevKey::Kp0),
+        "NUM1" | "NUMPAD1" => Some(RdevKey::Kp1),
+        "NUM2" | "NUMPAD2" => Some(RdevKey::Kp2),
+        "NUM3" | "NUMPAD3" => Some(RdevKey::Kp3),
+        "NUM4" | "NUMPAD4" => Some(RdevKey::Kp4),
+        "NUM5" | "NUMPAD5" => Some(RdevKey::Kp5),
+        "NUM6" | "NUMPAD6" => Some(RdevKey::Kp6),
+        "NUM7" | "NUMPAD7" => Some(RdevKey::Kp7),
+        "NUM8" | "NUMPAD8" => Some(RdevKey::Kp8),
+        "NUM9" | "NUMPAD9" => Some(RdevKey::Kp9),
+        _ => None,
     }
 }
 
@@ -100,9 +149,90 @@ impl Config {
     }
 }
 
+/// Expand environment variables in a string (e.g., "$TERMINAL" -> "kitty")
+fn expand_env_vars(s: &str) -> String {
+    let mut result = s.to_string();
+    // Find all $VAR patterns and expand them
+    while let Some(start) = result.find('$') {
+        // Find the end of the variable name (non-alphanumeric/underscore)
+        let rest = &result[start + 1..];
+        let end = rest
+            .find(|c: char| !c.is_alphanumeric() && c != '_')
+            .unwrap_or(rest.len());
+        let var_name = &rest[..end];
+
+        if var_name.is_empty() {
+            break;
+        }
+
+        let value = std::env::var(var_name).unwrap_or_default();
+        result = format!("{}{}{}", &result[..start], value, &rest[end..]);
+    }
+    result
+}
+
+/// Execute a custom shell command
+fn execute_custom_command(cmd: &str) -> Result<()> {
+    let expanded = expand_env_vars(cmd);
+
+    if expanded.trim().is_empty() {
+        eprintln!("[SS9K] ⚠️ Command expanded to empty string (check env vars): {}", cmd);
+        return Ok(());
+    }
+
+    println!("[SS9K] 🚀 Executing: {}", expanded);
+
+    // Spawn in a separate thread to avoid blocking and properly detach
+    let cmd_owned = expanded.to_string();
+    std::thread::spawn(move || {
+        #[cfg(target_os = "windows")]
+        let result = std::process::Command::new("cmd")
+            .args(["/C", &cmd_owned])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+
+        #[cfg(not(target_os = "windows"))]
+        let result = {
+            // For simple single-word commands, run directly
+            // For complex commands (with spaces, pipes, etc), use shell
+            let parts: Vec<&str> = cmd_owned.split_whitespace().collect();
+            if parts.len() == 1 && !cmd_owned.contains(['|', '&', ';', '>', '<', '$', '`', '(', ')']) {
+                // Simple command - run directly
+                std::process::Command::new(&cmd_owned)
+                    .spawn()
+            } else {
+                // Complex command - use shell
+                std::process::Command::new("sh")
+                    .args(["-c", &cmd_owned])
+                    .spawn()
+            }
+        };
+
+        match result {
+            Ok(mut child) => {
+                // Wait briefly to see if it fails immediately
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        if !status.success() {
+                            eprintln!("[SS9K] ⚠️ Command exited with: {}", status);
+                        }
+                    }
+                    Ok(None) => println!("[SS9K] ✅ Command running"),
+                    Err(e) => eprintln!("[SS9K] ❌ Error checking command: {}", e),
+                }
+            }
+            Err(e) => eprintln!("[SS9K] ❌ Failed to spawn: {}", e),
+        }
+    });
+
+    Ok(())
+}
+
 /// Execute a voice command or type the text
 /// Returns true if a command was executed, false if text was typed
-fn execute_command(enigo: &mut Enigo, text: &str) -> Result<bool> {
+fn execute_command(enigo: &mut Enigo, text: &str, custom_commands: &HashMap<String, String>) -> Result<bool> {
     let normalized = text.to_lowercase();
     // Strip punctuation for command matching
     let trimmed: String = normalized
@@ -193,8 +323,49 @@ fn execute_command(enigo: &mut Enigo, text: &str) -> Result<bool> {
             Ok(true)
         }
 
-        // Not a command, type it
+        // Media controls
+        "play" | "pause" | "play pause" | "playpause" => {
+            enigo.key(EnigoKey::MediaPlayPause, enigo::Direction::Click)?;
+            println!("[SS9K] 🎵 Command: Play/Pause");
+            Ok(true)
+        }
+        "next" | "next track" | "skip" => {
+            enigo.key(EnigoKey::MediaNextTrack, enigo::Direction::Click)?;
+            println!("[SS9K] 🎵 Command: Next Track");
+            Ok(true)
+        }
+        "previous" | "previous track" | "prev" | "back" => {
+            enigo.key(EnigoKey::MediaPrevTrack, enigo::Direction::Click)?;
+            println!("[SS9K] 🎵 Command: Previous Track");
+            Ok(true)
+        }
+        "volume up" | "louder" => {
+            enigo.key(EnigoKey::VolumeUp, enigo::Direction::Click)?;
+            println!("[SS9K] 🔊 Command: Volume Up");
+            Ok(true)
+        }
+        "volume down" | "quieter" | "softer" => {
+            enigo.key(EnigoKey::VolumeDown, enigo::Direction::Click)?;
+            println!("[SS9K] 🔉 Command: Volume Down");
+            Ok(true)
+        }
+        "mute" | "unmute" | "mute toggle" => {
+            enigo.key(EnigoKey::VolumeMute, enigo::Direction::Click)?;
+            println!("[SS9K] 🔇 Command: Mute Toggle");
+            Ok(true)
+        }
+
+        // Check custom commands from config
         _ => {
+            // Try to match against custom commands (case-insensitive)
+            for (phrase, cmd) in custom_commands {
+                if trimmed == phrase.to_lowercase() {
+                    execute_custom_command(cmd)?;
+                    return Ok(true);
+                }
+            }
+
+            // Not a command, type it
             enigo.text(text)?;
             println!("[SS9K] ⌨️ Typed!");
             Ok(false)
@@ -310,16 +481,25 @@ fn is_microphone(_name: &str) -> bool {
 }
 
 fn main() -> Result<()> {
-    println!("=================================");
-    println!("   SuperScreecher9000 v0.4.0");
-    println!("   Press F12 to screech");
-    println!("=================================");
-
-    // Load configuration
+    // Load configuration first so we can show the right hotkey
     let config = Config::load();
     println!("[SS9K] Model: {}, Language: {}, Threads: {}",
              config.model, config.language, config.threads);
-    println!("[SS9K] Hotkey mode: {}", config.hotkey_mode);
+
+    // Parse hotkey
+    let hotkey = parse_hotkey(&config.hotkey).unwrap_or_else(|| {
+        eprintln!("[SS9K] Unknown hotkey '{}', defaulting to F12", config.hotkey);
+        RdevKey::F12
+    });
+
+    println!("=================================");
+    println!("   SuperScreecher9000 v0.5.0");
+    println!("   Press {} to screech", config.hotkey);
+    println!("=================================");
+    println!("[SS9K] Hotkey: {} (mode: {})", config.hotkey, config.hotkey_mode);
+    if !config.commands.is_empty() {
+        println!("[SS9K] Custom commands: {} loaded", config.commands.len());
+    }
 
     // Check if model exists, download if not
     let model_filename = config.model_filename();
@@ -393,35 +573,24 @@ fn main() -> Result<()> {
     stream.play()?;
     println!("[SS9K] Stream playing. Waiting for F12...");
 
-    // Keyboard callback
-    let buffer_for_kb = audio_buffer.clone();
-    let ctx_for_kb = ctx.clone();
-    let config_for_kb = config.clone();
-    let is_toggle_mode = config.hotkey_mode == "toggle";
+    // Create async processing queue
+    let (audio_tx, audio_rx) = mpsc::channel::<Vec<f32>>();
 
-    // Helper closure to process audio (wrapped in Arc for sharing with timeout thread)
-    let process_audio = Arc::new({
-        let buffer = buffer_for_kb.clone();
-        let ctx = ctx_for_kb.clone();
-        let config = config_for_kb.clone();
-        move || {
-            let audio_data = if let Ok(buf) = buffer.lock() {
-                let duration = buf.len() as f32 / sample_rate as f32;
-                let callbacks = CALLBACK_COUNT.load(Ordering::SeqCst);
-                println!(
-                    "[SS9K] 🛑 Stopped. {} samples ({:.2}s), {} callbacks",
-                    buf.len(), duration, callbacks
-                );
-                buf.clone()
-            } else {
-                Vec::new()
-            };
+    // Spawn dedicated processor thread (processes jobs in order, never blocks main)
+    {
+        let ctx = ctx.clone();
+        let config = config.clone();
+        std::thread::spawn(move || {
+            println!("[SS9K] 🔧 Processor thread started");
+            for audio_data in audio_rx {
+                println!("[SS9K] 🔄 Processing {} samples...", audio_data.len());
 
-            if !audio_data.is_empty() {
-                // Resample and transcribe
+                // Resample
                 match resample_audio(&audio_data, sample_rate, WHISPER_SAMPLE_RATE) {
                     Ok(resampled) => {
                         println!("[SS9K] 🔄 Resampled to {} samples at 16kHz", resampled.len());
+
+                        // Transcribe
                         match transcribe(&ctx, &resampled, &config) {
                             Ok(text) => {
                                 println!("[SS9K] 📝 Transcription: {}", text);
@@ -429,7 +598,7 @@ fn main() -> Result<()> {
                                     // Execute command or type at cursor
                                     match Enigo::new(&Settings::default()) {
                                         Ok(mut enigo) => {
-                                            if let Err(e) = execute_command(&mut enigo, &text) {
+                                            if let Err(e) = execute_command(&mut enigo, &text, &config.commands) {
                                                 eprintln!("[SS9K] ❌ Command/Type error: {}", e);
                                             }
                                         }
@@ -443,22 +612,55 @@ fn main() -> Result<()> {
                     Err(e) => eprintln!("[SS9K] ❌ Resample error: {}", e),
                 }
             }
-        }
-    });
+            println!("[SS9K] 🔧 Processor thread exiting");
+        });
+    }
 
-    // Clone process_audio for timeout thread
-    let process_audio_for_timeout = process_audio.clone();
+    // Keyboard callback
+    let buffer_for_kb = audio_buffer.clone();
+    let is_toggle_mode = config.hotkey_mode == "toggle";
     let toggle_timeout = config.toggle_timeout_secs;
 
+    // Helper closure to extract audio and send to processor (non-blocking)
+    let send_audio = {
+        let buffer = buffer_for_kb.clone();
+        let tx = audio_tx.clone();
+        Arc::new(move || {
+            let audio_data = if let Ok(buf) = buffer.lock() {
+                let duration = buf.len() as f32 / sample_rate as f32;
+                let callbacks = CALLBACK_COUNT.load(Ordering::SeqCst);
+                println!(
+                    "[SS9K] 🛑 Stopped. {} samples ({:.2}s), {} callbacks",
+                    buf.len(), duration, callbacks
+                );
+                buf.clone()
+            } else {
+                Vec::new()
+            };
+
+            if !audio_data.is_empty() {
+                if let Err(e) = tx.send(audio_data) {
+                    eprintln!("[SS9K] ❌ Failed to queue audio: {}", e);
+                } else {
+                    println!("[SS9K] 📤 Audio queued for processing");
+                }
+            }
+        })
+    };
+
+    // Clone for timeout thread
+    let send_audio_for_timeout = send_audio.clone();
+
+    let hotkey_name = config.hotkey.clone();
     let callback = move |event: Event| {
         match event.event_type {
-            EventType::KeyPress(RdevKey::F12) => {
+            EventType::KeyPress(key) if key == hotkey => {
                 if is_toggle_mode {
                     // Toggle mode: press toggles recording on/off
                     if RECORDING.load(Ordering::SeqCst) {
-                        // Was recording, stop and process
+                        // Was recording, stop and queue for processing
                         RECORDING.store(false, Ordering::SeqCst);
-                        process_audio();
+                        send_audio();
                     } else {
                         // Not recording, start
                         if let Ok(mut buf) = buffer_for_kb.lock() {
@@ -471,10 +673,10 @@ fn main() -> Result<()> {
                         RECORDING.store(true, Ordering::SeqCst);
 
                         if toggle_timeout > 0 {
-                            println!("[SS9K] 🎙️ Recording... (F12 to stop, or {}s timeout)", toggle_timeout);
+                            println!("[SS9K] 🎙️ Recording... ({} to stop, or {}s timeout)", hotkey_name, toggle_timeout);
 
                             // Spawn timeout thread
-                            let process_audio_timeout = process_audio_for_timeout.clone();
+                            let send_audio_timeout = send_audio_for_timeout.clone();
                             std::thread::spawn(move || {
                                 std::thread::sleep(Duration::from_secs(toggle_timeout));
 
@@ -483,11 +685,11 @@ fn main() -> Result<()> {
                                    && RECORDING.load(Ordering::SeqCst) {
                                     println!("[SS9K] ⏱️ Timeout reached!");
                                     RECORDING.store(false, Ordering::SeqCst);
-                                    process_audio_timeout();
+                                    send_audio_timeout();
                                 }
                             });
                         } else {
-                            println!("[SS9K] 🎙️ Recording... (press F12 again to stop)");
+                            println!("[SS9K] 🎙️ Recording... (press {} again to stop)", hotkey_name);
                         }
                     }
                 } else {
@@ -502,12 +704,12 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            EventType::KeyRelease(RdevKey::F12) => {
+            EventType::KeyRelease(key) if key == hotkey => {
                 if !is_toggle_mode {
-                    // Hold mode: release stops recording and processes
+                    // Hold mode: release stops recording and queues for processing
                     if RECORDING.load(Ordering::SeqCst) {
                         RECORDING.store(false, Ordering::SeqCst);
-                        process_audio();
+                        send_audio();
                     }
                 }
                 // Toggle mode: release does nothing
