@@ -39,16 +39,17 @@ jobs:
       - name: Build
         run: cargo build --release
 
-  # macOS build (also an experiment)
-  # Using macos-13 (Intel) to avoid ARM64 SIMD issues with whisper.cpp
-  macos:
-    runs-on: macos-13
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build
-        run: cargo build --release
+  # macOS build - DISABLED until we have a way to test
+  # Issues: ARM64 SIMD (i8mm) problems with whisper.cpp, runner availability
+  # Re-enable when we have a macOS user to test with
+  # macos:
+  #   runs-on: macos-13
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #
+  #     - name: Install Rust
+  #       uses: dtolnay/rust-toolchain@stable
+  #
+  #     - name: Build
+  #       run: cargo build --release
