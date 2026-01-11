@@ -1,8 +1,4 @@
-# SuperScreecher9000 Configuration
-# Copy to one of:
-#   ~/.config/ss9k/config.toml (Linux/macOS)
-#   ~/.ss9k/config.toml (fallback)
-#   ./config.toml (development)
+
 
 # Model to use: tiny, base, small, medium, large
 # Larger = more accurate but slower
@@ -20,3 +16,8 @@ threads = 4
 # Leave empty for auto-detection
 # Example: "Microphone" or "Blue Yeti"
 device = ""
+
+#
+hotkey_mode = "hold"
+toggle_timeout_secs = 10   # auto-stop after 10 seconds
+  

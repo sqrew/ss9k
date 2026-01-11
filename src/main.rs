@@ -9,19 +9,22 @@ use serde::Deserialize;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
 static RECORDING: AtomicBool = AtomicBool::new(false);
 static CALLBACK_COUNT: AtomicUsize = AtomicUsize::new(0);
+// Session ID to prevent stale timeout threads from stopping new recordings
+static RECORDING_SESSION: AtomicU64 = AtomicU64::new(0);
 
 const WHISPER_SAMPLE_RATE: u32 = 16000;
 
 type AudioBuffer = Arc<Mutex<Vec<f32>>>;
 
 /// Configuration for SS9K
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(default)]
 pub struct Config {
     /// Model to use: tiny, base, small, medium, large
@@ -32,6 +35,10 @@ pub struct Config {
     pub threads: usize,
     /// Specific device name (empty = auto-detect)
     pub device: String,
+    /// Hotkey mode: "hold" (press to start, release to stop) or "toggle" (press to start, press again to stop)
+    pub hotkey_mode: String,
+    /// Timeout in seconds for toggle mode (0 = no timeout)
+    pub toggle_timeout_secs: u64,
 }
 
 impl Default for Config {
@@ -41,6 +48,8 @@ impl Default for Config {
             language: "en".to_string(),
             threads: 4,
             device: String::new(),
+            hotkey_mode: "hold".to_string(),
+            toggle_timeout_secs: 0,
         }
     }
 }
@@ -310,6 +319,7 @@ fn main() -> Result<()> {
     let config = Config::load();
     println!("[SS9K] Model: {}, Language: {}, Threads: {}",
              config.model, config.language, config.threads);
+    println!("[SS9K] Hotkey mode: {}", config.hotkey_mode);
 
     // Check if model exists, download if not
     let model_filename = config.model_filename();
@@ -387,61 +397,120 @@ fn main() -> Result<()> {
     let buffer_for_kb = audio_buffer.clone();
     let ctx_for_kb = ctx.clone();
     let config_for_kb = config.clone();
+    let is_toggle_mode = config.hotkey_mode == "toggle";
+
+    // Helper closure to process audio (wrapped in Arc for sharing with timeout thread)
+    let process_audio = Arc::new({
+        let buffer = buffer_for_kb.clone();
+        let ctx = ctx_for_kb.clone();
+        let config = config_for_kb.clone();
+        move || {
+            let audio_data = if let Ok(buf) = buffer.lock() {
+                let duration = buf.len() as f32 / sample_rate as f32;
+                let callbacks = CALLBACK_COUNT.load(Ordering::SeqCst);
+                println!(
+                    "[SS9K] 🛑 Stopped. {} samples ({:.2}s), {} callbacks",
+                    buf.len(), duration, callbacks
+                );
+                buf.clone()
+            } else {
+                Vec::new()
+            };
+
+            if !audio_data.is_empty() {
+                // Resample and transcribe
+                match resample_audio(&audio_data, sample_rate, WHISPER_SAMPLE_RATE) {
+                    Ok(resampled) => {
+                        println!("[SS9K] 🔄 Resampled to {} samples at 16kHz", resampled.len());
+                        match transcribe(&ctx, &resampled, &config) {
+                            Ok(text) => {
+                                println!("[SS9K] 📝 Transcription: {}", text);
+                                if !text.is_empty() {
+                                    // Execute command or type at cursor
+                                    match Enigo::new(&Settings::default()) {
+                                        Ok(mut enigo) => {
+                                            if let Err(e) = execute_command(&mut enigo, &text) {
+                                                eprintln!("[SS9K] ❌ Command/Type error: {}", e);
+                                            }
+                                        }
+                                        Err(e) => eprintln!("[SS9K] ❌ Enigo init error: {}", e),
+                                    }
+                                }
+                            }
+                            Err(e) => eprintln!("[SS9K] ❌ Transcription error: {}", e),
+                        }
+                    }
+                    Err(e) => eprintln!("[SS9K] ❌ Resample error: {}", e),
+                }
+            }
+        }
+    });
+
+    // Clone process_audio for timeout thread
+    let process_audio_for_timeout = process_audio.clone();
+    let toggle_timeout = config.toggle_timeout_secs;
+
     let callback = move |event: Event| {
         match event.event_type {
             EventType::KeyPress(RdevKey::F12) => {
-                if !RECORDING.load(Ordering::SeqCst) {
-                    if let Ok(mut buf) = buffer_for_kb.lock() {
-                        buf.clear();
+                if is_toggle_mode {
+                    // Toggle mode: press toggles recording on/off
+                    if RECORDING.load(Ordering::SeqCst) {
+                        // Was recording, stop and process
+                        RECORDING.store(false, Ordering::SeqCst);
+                        process_audio();
+                    } else {
+                        // Not recording, start
+                        if let Ok(mut buf) = buffer_for_kb.lock() {
+                            buf.clear();
+                        }
+                        CALLBACK_COUNT.store(0, Ordering::SeqCst);
+
+                        // Increment session ID to invalidate any pending timeout threads
+                        let session_id = RECORDING_SESSION.fetch_add(1, Ordering::SeqCst) + 1;
+                        RECORDING.store(true, Ordering::SeqCst);
+
+                        if toggle_timeout > 0 {
+                            println!("[SS9K] 🎙️ Recording... (F12 to stop, or {}s timeout)", toggle_timeout);
+
+                            // Spawn timeout thread
+                            let process_audio_timeout = process_audio_for_timeout.clone();
+                            std::thread::spawn(move || {
+                                std::thread::sleep(Duration::from_secs(toggle_timeout));
+
+                                // Only stop if this is still the same recording session
+                                if RECORDING_SESSION.load(Ordering::SeqCst) == session_id
+                                   && RECORDING.load(Ordering::SeqCst) {
+                                    println!("[SS9K] ⏱️ Timeout reached!");
+                                    RECORDING.store(false, Ordering::SeqCst);
+                                    process_audio_timeout();
+                                }
+                            });
+                        } else {
+                            println!("[SS9K] 🎙️ Recording... (press F12 again to stop)");
+                        }
                     }
-                    CALLBACK_COUNT.store(0, Ordering::SeqCst);
-                    RECORDING.store(true, Ordering::SeqCst);
-                    println!("[SS9K] 🎙️ Recording...");
+                } else {
+                    // Hold mode: press starts recording
+                    if !RECORDING.load(Ordering::SeqCst) {
+                        if let Ok(mut buf) = buffer_for_kb.lock() {
+                            buf.clear();
+                        }
+                        CALLBACK_COUNT.store(0, Ordering::SeqCst);
+                        RECORDING.store(true, Ordering::SeqCst);
+                        println!("[SS9K] 🎙️ Recording...");
+                    }
                 }
             }
             EventType::KeyRelease(RdevKey::F12) => {
-                if RECORDING.load(Ordering::SeqCst) {
-                    RECORDING.store(false, Ordering::SeqCst);
-
-                    let audio_data = if let Ok(buf) = buffer_for_kb.lock() {
-                        let duration = buf.len() as f32 / sample_rate as f32;
-                        let callbacks = CALLBACK_COUNT.load(Ordering::SeqCst);
-                        println!(
-                            "[SS9K] 🛑 Stopped. {} samples ({:.2}s), {} callbacks",
-                            buf.len(), duration, callbacks
-                        );
-                        buf.clone()
-                    } else {
-                        Vec::new()
-                    };
-
-                    if !audio_data.is_empty() {
-                        // Resample and transcribe
-                        match resample_audio(&audio_data, sample_rate, WHISPER_SAMPLE_RATE) {
-                            Ok(resampled) => {
-                                println!("[SS9K] 🔄 Resampled to {} samples at 16kHz", resampled.len());
-                                match transcribe(&ctx_for_kb, &resampled, &config_for_kb) {
-                                    Ok(text) => {
-                                        println!("[SS9K] 📝 Transcription: {}", text);
-                                        if !text.is_empty() {
-                                            // Execute command or type at cursor
-                                            match Enigo::new(&Settings::default()) {
-                                                Ok(mut enigo) => {
-                                                    if let Err(e) = execute_command(&mut enigo, &text) {
-                                                        eprintln!("[SS9K] ❌ Command/Type error: {}", e);
-                                                    }
-                                                }
-                                                Err(e) => eprintln!("[SS9K] ❌ Enigo init error: {}", e),
-                                            }
-                                        }
-                                    }
-                                    Err(e) => eprintln!("[SS9K] ❌ Transcription error: {}", e),
-                                }
-                            }
-                            Err(e) => eprintln!("[SS9K] ❌ Resample error: {}", e),
-                        }
+                if !is_toggle_mode {
+                    // Hold mode: release stops recording and processes
+                    if RECORDING.load(Ordering::SeqCst) {
+                        RECORDING.store(false, Ordering::SeqCst);
+                        process_audio();
                     }
                 }
+                // Toggle mode: release does nothing
             }
             _ => {}
         }

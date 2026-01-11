@@ -1,12 +1,14 @@
 #+TITLE: SS9K Todo
 #+DATE: 2026-01-11
 #+DESCRIPTION: Simple task tracking for SuperScreecher9000
+#+DATETIME: [2026-01-11 10:24:33 EST - Sun]
+ 
 
 * NOW
 The one thing we're focused on right now.
 
+- [X] Push CI workflow update (disable macOS)
 - [ ] Test on Windows (dual boot, confirm it actually runs)
-- [ ] Push CI workflow update (disable macOS)
 
 * NEXT
 After NOW is done.
@@ -26,11 +28,23 @@ Quality of life improvements.
 - [ ] Add audio feedback (beep on record start/stop)
 - [ ] Add visual indicator (tray icon?)
 - [ ] Configurable hotkey (not just F12)
+- [X] Hotkey mode: hold vs toggle
+  - [X] Hold mode (default) - press to start, release to stop
+  - [X] Toggle mode - press to start, press again to stop
+  - [X] Optional timeout for toggle mode (auto-stop after N seconds)
 
 * LATER
 Future features, no rush.
 
+- [ ] Modal System (see NOTES for architecture)
+  - [ ] Sleep mode (default, ignores speech except wake phrases)
+  - [ ] Command mode ("command mode" wake phrase)
+  - [ ] Dictate mode ("dictate mode" wake phrase)
+  - [ ] Sleep phrases ("sleep", "go to sleep", "stop listening")
 - [ ] Voice Activity Detection (Silero VAD)
+  - [ ] Always-on listening (optional, can disable)
+  - [ ] Wake phrase detection
+  - [ ] Works alongside hotkey (both available)
 - [ ] Context-aware commands (different commands per app)
 - [ ] Streaming transcription (type as you speak)
 - [ ] Hardware trigger support (bluetooth button)
@@ -75,3 +89,34 @@ Nobody has: dictation + system commands + cross-platform + single binary
 - Ship early, iterate
 - sqrew can test Windows via dual boot
 - macOS needs external tester
+
+** Modal System Architecture
+
+Two interaction paradigms, user chooses:
+
+*** Hotkey Mode (current)
+- Hold F12 → speak → release → process
+- Simple, explicit, low resource, privacy-friendly
+- Always available even when VAD is enabled
+
+*** VAD Mode (future)
+- Always listening via Voice Activity Detection
+- Sleep mode is default (hears but ignores)
+- Wake phrases switch modes:
+  - "command mode" → enters command mode
+  - "dictate mode" → enters dictate mode
+- Sleep phrases return to idle:
+  - "sleep", "go to sleep", "stop listening"
+- Hands-free, accessibility-focused
+
+*** Config Example
+#+BEGIN_SRC toml
+[interaction]
+hotkey = "F12"
+hotkey_mode = "dictate"  # or "command"
+
+[vad]
+enabled = true  # false = hotkey only
+wake_phrases = ["command mode", "dictate mode"]
+sleep_phrases = ["sleep", "go to sleep", "stop listening"]
+#+END_SRC
