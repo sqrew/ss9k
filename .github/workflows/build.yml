@@ -20,8 +20,8 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install system deps (ALSA for audio)
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - name: Install system deps (ALSA + X11)
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libx11-dev libxtst-dev libxdo-dev
 
       - name: Build
         run: cargo build --release
@@ -40,8 +40,9 @@ jobs:
         run: cargo build --release
 
   # macOS build (also an experiment)
+  # Using macos-13 (Intel) to avoid ARM64 SIMD issues with whisper.cpp
   macos:
-    runs-on: macos-latest
+    runs-on: macos-13
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
