@@ -1,0 +1,53 @@
+# SS9K Cross-Platform Build Check
+# This just checks if it compiles. That's it. Not scary.
+
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  # Linux build (should work, we know this)
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Install system deps (ALSA for audio)
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
+      - name: Build
+        run: cargo build --release
+
+  # Windows build (the experiment)
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build
+        run: cargo build --release
+
+  # macOS build (also an experiment)
+  macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build
+        run: cargo build --release
