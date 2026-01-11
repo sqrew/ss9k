@@ -1,8 +1,10 @@
 use anyhow::Result;
+use arc_swap::ArcSwap;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::Sample;
 use enigo::{Enigo, Key as EnigoKey, Keyboard, Settings};
 use indicatif::{ProgressBar, ProgressStyle};
+use notify::{recommended_watcher, RecursiveMode, Watcher};
 use rdev::{listen, Event, EventType, Key as RdevKey};
 use rubato::{Resampler, SincFixedIn, SincInterpolationParameters, SincInterpolationType, WindowFunction};
 use serde::Deserialize;
@@ -108,8 +110,8 @@ fn parse_hotkey(s: &str) -> Option<RdevKey> {
 }
 
 impl Config {
-    /// Load config from file, or return defaults
-    pub fn load() -> Self {
+    /// Load config from file, or return defaults. Also returns the path loaded from (if any).
+    pub fn load() -> (Self, Option<PathBuf>) {
         let config_paths = [
             // 1. XDG config dir
             dirs::config_dir().map(|p| p.join("ss9k").join("config.toml")),
@@ -125,7 +127,7 @@ impl Config {
                     match toml::from_str(&contents) {
                         Ok(config) => {
                             println!("[SS9K] Loaded config from: {:?}", path);
-                            return config;
+                            return (config, Some(path));
                         }
                         Err(e) => {
                             eprintln!("[SS9K] Config parse error in {:?}: {}", path, e);
@@ -136,7 +138,22 @@ impl Config {
         }
 
         println!("[SS9K] Using default config");
-        Self::default()
+        (Self::default(), None)
+    }
+
+    /// Reload config from a specific path
+    pub fn load_from(path: &PathBuf) -> Option<Self> {
+        if let Ok(contents) = fs::read_to_string(path) {
+            match toml::from_str(&contents) {
+                Ok(config) => Some(config),
+                Err(e) => {
+                    eprintln!("[SS9K] Config reload error: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
     }
 
     /// Get the model filename
@@ -497,18 +514,17 @@ fn is_microphone(_name: &str) -> bool {
 
 fn main() -> Result<()> {
     // Load configuration first so we can show the right hotkey
-    let config = Config::load();
+    let (config, config_path) = Config::load();
     println!("[SS9K] Model: {}, Language: {}, Threads: {}",
              config.model, config.language, config.threads);
 
-    // Parse hotkey
-    let hotkey = parse_hotkey(&config.hotkey).unwrap_or_else(|| {
-        eprintln!("[SS9K] Unknown hotkey '{}', defaulting to F12", config.hotkey);
-        RdevKey::F12
-    });
+    // Validate hotkey at startup (actual hotkey is loaded fresh from config on each event)
+    if parse_hotkey(&config.hotkey).is_none() {
+        eprintln!("[SS9K] Unknown hotkey '{}', will default to F12", config.hotkey);
+    }
 
     println!("=================================");
-    println!("   SuperScreecher9000 v0.5.0");
+    println!("   SuperScreecher9000 v0.6.0");
     println!("   Press {} to screech", config.hotkey);
     println!("=================================");
     println!("[SS9K] Hotkey: {} (mode: {})", config.hotkey, config.hotkey_mode);
@@ -539,19 +555,55 @@ fn main() -> Result<()> {
         WhisperContextParameters::default()
     ).expect("Failed to load whisper model");
     let ctx = Arc::new(ctx);
-    let config = Arc::new(config);
+    let config = Arc::new(ArcSwap::from_pointee(config));
     println!("[SS9K] Model loaded!");
+
+    // Set up config hot-reload if we have a config file
+    if let Some(ref path) = config_path {
+        let config_for_watcher = config.clone();
+        let watch_path = path.clone();
+        std::thread::spawn(move || {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let mut watcher = match recommended_watcher(tx) {
+                Ok(w) => w,
+                Err(e) => {
+                    eprintln!("[SS9K] Failed to create config watcher: {}", e);
+                    return;
+                }
+            };
+            if let Err(e) = watcher.watch(&watch_path, RecursiveMode::NonRecursive) {
+                eprintln!("[SS9K] Failed to watch config file: {}", e);
+                return;
+            }
+            println!("[SS9K] 👀 Watching config for changes: {:?}", watch_path);
+
+            for event in rx {
+                if let Ok(event) = event {
+                    if event.kind.is_modify() {
+                        // Small delay to let the file finish writing
+                        std::thread::sleep(Duration::from_millis(100));
+                        if let Some(new_config) = Config::load_from(&watch_path) {
+                            config_for_watcher.store(Arc::new(new_config));
+                            println!("[SS9K] 🔄 Config reloaded!");
+                        }
+                    }
+                }
+            }
+        });
+    }
 
     let host = cpal::default_host();
     println!("[SS9K] Host: {:?}", host.id());
 
     // Find microphone device (config override or platform-specific detection)
-    let device = if !config.device.is_empty() {
+    let cfg = config.load();
+    let device = if !cfg.device.is_empty() {
         // User specified a device in config
+        let device_name = cfg.device.clone();
         host.input_devices()?
-            .find(|d| d.name().map(|n| n.contains(&config.device)).unwrap_or(false))
+            .find(|d| d.name().map(|n| n.contains(&device_name)).unwrap_or(false))
             .or_else(|| {
-                eprintln!("[SS9K] Configured device '{}' not found, using default", config.device);
+                eprintln!("[SS9K] Configured device '{}' not found, using default", device_name);
                 host.default_input_device()
             })
     } else {
@@ -608,15 +660,18 @@ fn main() -> Result<()> {
                     Ok(resampled) => {
                         println!("[SS9K] 🔄 Resampled to {} samples at 16kHz", resampled.len());
 
+                        // Load current config (hot-reloadable)
+                        let cfg = config.load();
+
                         // Transcribe
-                        match transcribe(&ctx, &resampled, &config) {
+                        match transcribe(&ctx, &resampled, &cfg) {
                             Ok(text) => {
                                 println!("[SS9K] 📝 Transcription: {}", text);
                                 if !text.is_empty() {
                                     // Execute command or type at cursor
                                     match Enigo::new(&Settings::default()) {
                                         Ok(mut enigo) => {
-                                            if let Err(e) = execute_command(&mut enigo, &text, &config.commands, &config.aliases) {
+                                            if let Err(e) = execute_command(&mut enigo, &text, &cfg.commands, &cfg.aliases) {
                                                 eprintln!("[SS9K] ❌ Command/Type error: {}", e);
                                             }
                                         }
@@ -636,8 +691,7 @@ fn main() -> Result<()> {
 
     // Keyboard callback
     let buffer_for_kb = audio_buffer.clone();
-    let is_toggle_mode = config.hotkey_mode == "toggle";
-    let toggle_timeout = config.toggle_timeout_secs;
+    let config_for_kb = config.clone();
 
     // Helper closure to extract audio and send to processor (non-blocking)
     let send_audio = {
@@ -668,11 +722,17 @@ fn main() -> Result<()> {
 
     // Clone for timeout thread
     let send_audio_for_timeout = send_audio.clone();
+    let config_for_timeout = config_for_kb.clone();
 
-    let hotkey_name = config.hotkey.clone();
     let callback = move |event: Event| {
+        // Load config fresh on each event (hot-reloadable!)
+        let cfg = config_for_kb.load();
+        let current_hotkey = parse_hotkey(&cfg.hotkey).unwrap_or(RdevKey::F12);
+        let is_toggle_mode = cfg.hotkey_mode == "toggle";
+        let toggle_timeout = cfg.toggle_timeout_secs;
+
         match event.event_type {
-            EventType::KeyPress(key) if key == hotkey => {
+            EventType::KeyPress(key) if key == current_hotkey => {
                 if is_toggle_mode {
                     // Toggle mode: press toggles recording on/off
                     if RECORDING.load(Ordering::SeqCst) {
@@ -690,18 +750,21 @@ fn main() -> Result<()> {
                         let session_id = RECORDING_SESSION.fetch_add(1, Ordering::SeqCst) + 1;
                         RECORDING.store(true, Ordering::SeqCst);
 
+                        let hotkey_name = cfg.hotkey.clone();
                         if toggle_timeout > 0 {
                             println!("[SS9K] 🎙️ Recording... ({} to stop, or {}s timeout)", hotkey_name, toggle_timeout);
 
                             // Spawn timeout thread
                             let send_audio_timeout = send_audio_for_timeout.clone();
+                            let config_timeout = config_for_timeout.clone();
                             std::thread::spawn(move || {
                                 std::thread::sleep(Duration::from_secs(toggle_timeout));
 
                                 // Only stop if this is still the same recording session
                                 if RECORDING_SESSION.load(Ordering::SeqCst) == session_id
                                    && RECORDING.load(Ordering::SeqCst) {
-                                    println!("[SS9K] ⏱️ Timeout reached!");
+                                    let cfg = config_timeout.load();
+                                    println!("[SS9K] ⏱️ Timeout reached! (was recording with {})", cfg.hotkey);
                                     RECORDING.store(false, Ordering::SeqCst);
                                     send_audio_timeout();
                                 }
@@ -722,7 +785,7 @@ fn main() -> Result<()> {
                     }
                 }
             }
-            EventType::KeyRelease(key) if key == hotkey => {
+            EventType::KeyRelease(key) if key == current_hotkey => {
                 if !is_toggle_mode {
                     // Hold mode: release stops recording and queues for processing
                     if RECORDING.load(Ordering::SeqCst) {

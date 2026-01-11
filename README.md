@@ -6,13 +6,15 @@ A local, GPU-accelerated speech-to-text tool that types wherever your cursor is.
 
 ## What It Does
 
-Hold F12, speak, release. Your words appear at cursor. No cloud. No API keys. No subscriptions. Just you and your computer.
+Press a key, speak, release. Your words appear at cursor. Or say a command. No cloud. No API keys. No subscriptions. Just you and your computer.
 
 ## Features
 
 - **Local inference** - Whisper runs on YOUR machine
 - **GPU accelerated** - Vulkan (Intel/AMD), CUDA (NVIDIA), Metal (macOS)
 - **Types at cursor** - Works anywhere: editors, browsers, chat apps
+- **Voice commands** - Navigation, editing, media controls, custom shell commands
+- **Hot-reload config** - Change settings without restarting
 - **Multiple models** - tiny (75MB) to large (3GB), pick your speed/accuracy tradeoff
 - **Cross-platform ready** - Built with portable Rust crates
 
@@ -32,14 +34,40 @@ curl -L -o models/ggml-small.bin "https://huggingface.co/ggerganov/whisper.cpp/r
 ## Usage
 
 ```bash
-# Run it
+# Run it (downloads model on first run)
 ./target/release/ss9k
 
-# Hold F12, speak, release
+# Hold your hotkey (F12 default), speak, release
 # Text appears at cursor
 ```
 
-That's it. No config files. No setup wizards. Screech and go.
+### Voice Commands
+
+Built-in commands (just say them):
+- **Navigation**: "enter", "tab", "escape", "backspace", "space"
+- **Editing**: "select all", "copy", "paste", "cut", "undo", "redo", "save"
+- **Media**: "play", "pause", "next", "previous", "volume up", "volume down", "mute"
+
+### Configuration
+
+Create `~/.config/ss9k/config.toml`:
+
+```toml
+model = "small"           # tiny, base, small, medium, large
+language = "en"           # ISO 639-1 code
+hotkey = "ScrollLock"     # F1-F12, ScrollLock, Pause, etc.
+hotkey_mode = "hold"      # hold or toggle
+
+[commands]
+"open terminal" = "kitty"
+"open browser" = "firefox"
+"screenshot" = "flameshot gui"
+
+[aliases]
+"taping" = "typing"       # fix consistent misrecognitions
+```
+
+Config hot-reloads when you save - no restart needed.
 
 ## Models
 
@@ -53,7 +81,7 @@ That's it. No config files. No setup wizards. Screech and go.
 
 Download from: `https://huggingface.co/ggerganov/whisper.cpp/tree/main`
 
-To change model, edit `MODEL_PATH` in `src/main.rs` (config file coming soon).
+Or just run SS9K - it auto-downloads the configured model on first launch.
 
 ## Hardware
 
@@ -98,12 +126,13 @@ For people who:
 
 ## Roadmap
 
-- [ ] Config file (model, hotkey, device selection)
-- [ ] Audio feedback (beep on start/stop)
-- [ ] Model auto-download on first run
+- [x] Config file (model, hotkey, device selection)
+- [x] Model auto-download on first run
+- [x] Voice commands (navigation, editing, media)
+- [x] Custom command mapping
+- [x] Hot-reload config
 - [ ] Streaming transcription (type as you speak)
-- [ ] Command mode vs dictation mode
-- [ ] Cross-platform releases (CI/CD)
+- [ ] Cross-platform testing (Windows, macOS)
 
 ## License
 
@@ -117,5 +146,7 @@ Built with:
 - [rdev](https://github.com/Narsil/rdev) - Global hotkey capture
 - [enigo](https://github.com/enigo-rs/enigo) - Keyboard simulation
 - [rubato](https://github.com/HEnquist/rubato) - Audio resampling
+- [arc-swap](https://github.com/vorner/arc-swap) - Lock-free config hot-reload
+- [notify](https://github.com/notify-rs/notify) - File watching
 
-Built by sqrew + Claude in a two-hour MVP session. The screech is real.
+Built by sqrew + Claude. The screech is real. 🦀
