@@ -257,15 +257,16 @@ CI builds separate binaries per platform. Users download the right one.
 
 * Future Enhancements
 
-- [X] Cross-platform (Windows, macOS) → IN PLANNING
-- [ ] Configurable hotkey
-- [ ] Push-to-talk vs toggle mode
+- [X] Cross-platform (Windows, macOS) → CI passing, needs testing
+- [X] Configurable hotkey → F1-F12, ScrollLock, Pause, etc.
+- [X] Push-to-talk vs toggle mode → Both supported + timeout
 - [ ] Audio feedback (beep on start/stop recording)
 - [ ] Visual indicator (tray icon, LED if hardware)
 - [ ] Hardware trigger support (bluetooth button)
 - [ ] Wearable mic/button (ESP32/Pi Pico)
 - [ ] Streaming transcription (type as you speak)
 - [X] Command mode vs dictation mode → Voice commands implemented!
+- [X] System control commands → Media keys + custom command mapping
 - [ ] Integration with screen readers
 
 * Open Questions
@@ -550,3 +551,22 @@ Deprioritized. Voxtype owns this niche. When we get there:
 - Voxtype source: https://github.com/peteonrails/voxtype (evdev patterns)
 - Handy wiki: https://github.com/cjpais/Handy/wiki (VAD docs)
 - Silero VAD: https://github.com/snakers4/silero-vad
+
+** 2026-01-11 - Session 5: THE DIFFERENTIATOR
+- *v0.5.0 RELEASED* - SS9K is now a voice control system, not just dictation
+- Implemented async processing queue (no more blocking while whisper runs)
+- Added configurable hotkey (F1-F12, ScrollLock, Pause, PageUp, etc.)
+- Added media key voice commands (play/pause, next, prev, volume, mute)
+- Implemented custom command mapping via TOML config
+  - Maps any voice phrase to any shell command
+  - Supports $ENV_VAR expansion at runtime
+  - Simple commands spawn directly (GUI apps work)
+  - Complex commands use shell wrapper
+- Fixed GUI app launching (sh -c wrapper was killing them)
+- Updated config.toml.example with all new options
+- SS9K now has what competitors lack:
+  - Voxtype: No system commands
+  - Talon: Requires Python
+  - Handy: No system commands, unstable
+  - SS9K: Dictation + system control + single binary + cross-platform
+- Pipeline: Hotkey ✅ | Audio ✅ | Whisper ✅ | Type ✅ | GPU ✅ | Commands ✅ | Media ✅ | Custom ✅

@@ -7,31 +7,18 @@
 * NOW
 The one thing we're focused on right now.
 
-- [X] Push CI workflow update (disable macOS)
-- [ ] Test on Windows (dual boot, confirm it actually runs)
+- [ ] Test on Windows (dual boot or testers)
 
 * NEXT
 After NOW is done.
 
-- [X] Add system control commands (THE DIFFERENTIATOR)
-  - [X] Volume up/down
-  - [X] Mute toggle
-  - [X] Media play/pause
-  - [X] Media next/prev
-  - [X] Focus window by name (via custom commands + wmctrl/i3-msg)
-  - [X] Launch app (via custom commands)
+- [ ] Add audio feedback (beep on record start/stop)
+- [ ] Add visual indicator (tray icon?)
 
 * SOON
 Quality of life improvements.
 
-- [X] Fix async queue (recording blocks while processing)
-- [ ] Add audio feedback (beep on record start/stop)
-- [ ] Add visual indicator (tray icon?)
-- [X] Configurable hotkey (not just F12)
-- [X] Hotkey mode: hold vs toggle
-  - [X] Hold mode (default) - press to start, release to stop
-  - [X] Toggle mode - press to start, press again to stop
-  - [X] Optional timeout for toggle mode (auto-stop after N seconds)
+(Most items completed - see DONE)
 
 * LATER
 Future features, no rush.
@@ -64,6 +51,13 @@ Completed tasks.
 - [X] CI for Windows
 - [X] Push to GitHub
 - [X] Competitive analysis (Voxtype, Talon, Handy, etc.)
+- [X] Hotkey mode: hold vs toggle (with optional timeout)
+- [X] Configurable hotkey (F1-F12, ScrollLock, Pause, etc.)
+- [X] Async processing queue (no more blocking)
+- [X] Media keys (volume, mute, play/pause, next/prev)
+- [X] Custom command mapping (TOML config → shell commands)
+- [X] $ENV_VAR expansion in custom commands
+- [X] THE DIFFERENTIATOR achieved (system control)
 
 * BLOCKED
 Waiting on something external.
