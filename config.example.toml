@@ -21,3 +21,21 @@ device = ""
 hotkey_mode = "hold"
 toggle_timeout_secs = 10   # auto-stop after 10 seconds
   
+
+# Custom voice commands
+# Maps spoken phrase -> shell command
+# Supports $ENV_VAR expansion (e.g., $TERMINAL, $BROWSER, $EDITOR)
+[commands]
+# "open terminal" = "kitty"
+# "open browser" = "librewolf"
+# "open editor" = "emacs"
+# "open firefox" = "firefox"
+# "screenshot" = "i3-scrot"
+
+# Aliases for common misrecognitions
+# Maps what whisper hears -> what you meant
+[aliases]
+# "e max" = "emacs"
+# "fire fox" = "firefox"
+# "libre wolf" = "librewolf"
+# "kit tea" = "kitty"

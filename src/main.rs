@@ -46,6 +46,9 @@ pub struct Config {
     /// Custom voice commands mapping phrase -> shell command
     #[serde(default)]
     pub commands: HashMap<String, String>,
+    /// Aliases for normalizing common misrecognitions (e.g., "e max" -> "emacs")
+    #[serde(default)]
+    pub aliases: HashMap<String, String>,
 }
 
 impl Default for Config {
@@ -59,6 +62,7 @@ impl Default for Config {
             hotkey_mode: "hold".to_string(),
             toggle_timeout_secs: 0,
             commands: HashMap::new(),
+            aliases: HashMap::new(),
         }
     }
 }
@@ -149,6 +153,15 @@ impl Config {
     }
 }
 
+/// Normalize text by applying aliases (e.g., "e max" -> "emacs")
+fn normalize_aliases(text: &str, aliases: &HashMap<String, String>) -> String {
+    let mut result = text.to_lowercase();
+    for (from, to) in aliases {
+        result = result.replace(&from.to_lowercase(), to);
+    }
+    result
+}
+
 /// Expand environment variables in a string (e.g., "$TERMINAL" -> "kitty")
 fn expand_env_vars(s: &str) -> String {
     let mut result = s.to_string();
@@ -232,10 +245,12 @@ fn execute_custom_command(cmd: &str) -> Result<()> {
 
 /// Execute a voice command or type the text
 /// Returns true if a command was executed, false if text was typed
-fn execute_command(enigo: &mut Enigo, text: &str, custom_commands: &HashMap<String, String>) -> Result<bool> {
-    let normalized = text.to_lowercase();
+fn execute_command(enigo: &mut Enigo, text: &str, custom_commands: &HashMap<String, String>, aliases: &HashMap<String, String>) -> Result<bool> {
+    // First normalize using aliases
+    let aliased = normalize_aliases(text, aliases);
+
     // Strip punctuation for command matching
-    let trimmed: String = normalized
+    let trimmed: String = aliased
         .trim()
         .chars()
         .filter(|c| c.is_alphanumeric() || c.is_whitespace())
@@ -365,8 +380,8 @@ fn execute_command(enigo: &mut Enigo, text: &str, custom_commands: &HashMap<Stri
                 }
             }
 
-            // Not a command, type it
-            enigo.text(text)?;
+            // Not a command, type it (use aliased version)
+            enigo.text(&aliased)?;
             println!("[SS9K] ⌨️ Typed!");
             Ok(false)
         }
@@ -500,6 +515,9 @@ fn main() -> Result<()> {
     if !config.commands.is_empty() {
         println!("[SS9K] Custom commands: {} loaded", config.commands.len());
     }
+    if !config.aliases.is_empty() {
+        println!("[SS9K] Aliases: {} loaded", config.aliases.len());
+    }
 
     // Check if model exists, download if not
     let model_filename = config.model_filename();
@@ -598,7 +616,7 @@ fn main() -> Result<()> {
                                     // Execute command or type at cursor
                                     match Enigo::new(&Settings::default()) {
                                         Ok(mut enigo) => {
-                                            if let Err(e) = execute_command(&mut enigo, &text, &config.commands) {
+                                            if let Err(e) = execute_command(&mut enigo, &text, &config.commands, &config.aliases) {
                                                 eprintln!("[SS9K] ❌ Command/Type error: {}", e);
                                             }
                                         }

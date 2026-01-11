@@ -41,3 +41,11 @@ toggle_timeout_secs = 0
 # "open firefox" = "firefox"
 # "screenshot" = "flameshot gui"
 # "lock screen" = "loginctl lock-session"
+
+# Aliases for common misrecognitions
+# Maps what whisper hears -> what you meant
+[aliases]
+# "e max" = "emacs"
+# "fire fox" = "firefox"
+# "libre wolf" = "librewolf"
+# "kit tea" = "kitty"
