@@ -16,7 +16,9 @@ Press a key, speak, release. Your words appear at cursor. Or say a command. No c
 - **Voice commands** - Navigation, editing, media controls, custom shell commands
 - **Leader words** - No reserved words; say "command enter" vs just "enter"
 - **Punctuation** - 50+ symbols via voice: "punctuation arrow" → `=>`
-- **Spell mode** - NATO phonetic, letters, numbers, punctuation: "spell alpha at bravo dot com" → `a@b.com`
+- **Spell mode** - NATO phonetic, letters, numbers, punctuation: "command spell alpha at bravo dot com" → `a@b.com`
+- **Shift mode** - Text selection: "command shift right times five" selects 5 characters
+- **Hold/Release** - Hold keys for gaming/accessibility: "command hold w" runs forward
 - **Emoji** - 80+ emoji via voice: "emoji thumbs up" → 👍
 - **Repetition** - "command backspace times five" or "command repeat three"
 - **Mishearing tolerance** - Built-in handling for common Whisper errors (caret/carrot, colon/colin, etc.)
@@ -52,9 +54,14 @@ SS9K uses **leader words** to distinguish commands from dictation:
 
 - `"command enter"` → presses Enter key
 - `"enter"` → types the word "enter"
-- `"punctuation period"` → types `.`
-- `"spell alpha at bravo"` → types `a@b`
+- `"punctuation period"` → types `.` (or `"punk period"`)
+- `"command spell alpha at bravo"` → types `a@b`
 - `"emoji fire"` → types 🔥
+
+**Leader words:**
+- `command` - Built-in commands, subcommands (shift, spell, hold, release)
+- `punctuation` / `punk` - Insert symbols
+- `emoji` - Insert emoji
 
 **Commands** (say "command" + any of these):
 
@@ -75,19 +82,45 @@ SS9K uses **leader words** to distinguish commands from dictation:
 | **Symbols**     | plus, minus, equals, asterisk, slash, pipe, at, hash, etc.                           |
 | **Programming** | arrow (=>), thin arrow (->), double colon, equals equals, not equals, and and, or or |
 
-**Spell Mode** (say "spell" + letters/numbers/punctuation):
+**Spell Mode** (say "command spell" + letters/numbers/punctuation):
 
-| Input                              | Output   |
-|------------------------------------|----------|
-| `spell alpha bravo charlie`        | abc      |
-| `spell capital alpha bravo`        | Ab       |
-| `spell one two three`              | 123      |
-| `spell alpha at bravo dot com`     | a@b.com  |
-| `spell alpha space bravo`          | a b      |
-| `spell alpha underscore bravo`     | a_b      |
+| Input                                    | Output   |
+|------------------------------------------|----------|
+| `command spell alpha bravo charlie`      | abc      |
+| `command spell capital alpha bravo`      | Ab       |
+| `command spell one two three`            | 123      |
+| `command spell alpha at bravo dot com`   | a@b.com  |
+| `command spell alpha space bravo`        | a b      |
+| `command spell alpha underscore bravo`   | a_b      |
 
 Supports: NATO phonetic (alpha-zulu), number words (zero-nine), raw letters, raw digits, space, and punctuation (dot, at, dash, underscore, slash, colon, hash, etc.).
 Capital modifiers: `capital`, `cap`, `uppercase`, `upper`.
+
+**Shift Mode** (say "command shift" + direction for text selection):
+
+| Input                              | Effect                        |
+|------------------------------------|-------------------------------|
+| `command shift right`              | Select 1 character right      |
+| `command shift right times five`   | Select 5 characters right     |
+| `command shift word left`          | Select word left              |
+| `command shift home`               | Select to start of line       |
+| `command shift end`                | Select to end of line         |
+| `command shift page down`          | Select a page down            |
+
+Supports: left, right, up, down, word left, word right, home, end, page up, page down, tab, enter.
+
+**Hold/Release** (for gaming, accessibility, or modifier keys):
+
+| Input                              | Effect                        |
+|------------------------------------|-------------------------------|
+| `command hold w`                   | Hold W key (run forward)      |
+| `command hold shift`               | Hold Shift modifier           |
+| `command release w`                | Release W key                 |
+| `command release all`              | Release all held keys         |
+
+Supports: all letters (a-z), modifiers (shift, control/ctrl, alt, meta/super/win), arrows (up, down, left, right), and common keys (space, enter, tab, escape, backspace).
+
+**Tip:** Use hold for games ("command hold w" to run), accessibility (hold shift while selecting), or any situation where you need a key pressed continuously.
 
 **Emoji** (say "emoji" + name):
 

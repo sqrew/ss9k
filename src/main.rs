@@ -24,6 +24,8 @@ static CALLBACK_COUNT: AtomicUsize = AtomicUsize::new(0);
 static RECORDING_SESSION: AtomicU64 = AtomicU64::new(0);
 // Last executed command for "repeat" functionality
 static LAST_COMMAND: std::sync::LazyLock<Mutex<Option<String>>> = std::sync::LazyLock::new(|| Mutex::new(None));
+// Currently held keys for "hold/release" functionality
+static HELD_KEYS: std::sync::LazyLock<Mutex<Vec<EnigoKey>>> = std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
 const WHISPER_SAMPLE_RATE: u32 = 16000;
 
@@ -312,17 +314,12 @@ fn execute_command(enigo: &mut Enigo, text: &str, custom_commands: &HashMap<Stri
         return execute_builtin_command(enigo, cmd.trim());
     }
 
-    // Check for "punctuation X" leader
-    if let Some(punct) = trimmed.strip_prefix("punctuation ") {
+    // Check for "punctuation X" or "punk X" leader (safe - distinctive words)
+    if let Some(punct) = trimmed.strip_prefix("punctuation ").or_else(|| trimmed.strip_prefix("punk ")) {
         return execute_punctuation(enigo, punct.trim());
     }
 
-    // Check for "spell X Y Z" leader
-    if let Some(letters) = trimmed.strip_prefix("spell ") {
-        return execute_spell_mode(enigo, letters.trim());
-    }
-
-    // Check for "emoji X" leader
+    // Check for "emoji X" leader (safe - distinctive word)
     if let Some(emoji_name) = trimmed.strip_prefix("emoji ") {
         return execute_emoji(enigo, emoji_name.trim());
     }
@@ -373,6 +370,29 @@ fn execute_builtin_command(enigo: &mut Enigo, cmd: &str) -> Result<bool> {
             eprintln!("[SS9K] ⚠️ Nothing to repeat");
             return Ok(false);
         }
+    }
+
+    // Handle "shift X" subcommand (selection/shift-modified keys)
+    if let Some(shift_cmd) = base_cmd.strip_prefix("shift ") {
+        return execute_shift(enigo, shift_cmd.trim());
+    }
+
+    // Handle "spell X Y Z" subcommand
+    if let Some(spell_input) = base_cmd.strip_prefix("spell ") {
+        return execute_spell_mode(enigo, spell_input.trim());
+    }
+
+    // Handle "hold X" subcommand
+    if let Some(hold_key) = base_cmd.strip_prefix("hold ") {
+        return execute_hold(enigo, hold_key.trim());
+    }
+
+    // Handle "release X" or "release all" subcommand
+    if base_cmd == "release all" || base_cmd == "release" {
+        return execute_release_all(enigo);
+    }
+    if let Some(release_key) = base_cmd.strip_prefix("release ") {
+        return execute_release(enigo, release_key.trim());
     }
 
     // Execute the command count times
@@ -803,6 +823,78 @@ fn execute_emoji(enigo: &mut Enigo, name: &str) -> Result<bool> {
     Ok(true)
 }
 
+/// Execute shift-modified commands (for selections and shift+key combos)
+/// Supports "times N" suffix for repetition
+fn execute_shift(enigo: &mut Enigo, cmd: &str) -> Result<bool> {
+    // Parse "times N" suffix
+    let (base_cmd, count) = parse_times_suffix(cmd);
+    let times = count.max(1);
+
+    // Hold shift for the duration
+    enigo.key(EnigoKey::Shift, enigo::Direction::Press)?;
+
+    for i in 0..times {
+        let result = match base_cmd {
+            // Arrow keys (selection)
+            "left" => enigo.key(EnigoKey::LeftArrow, enigo::Direction::Click),
+            "right" => enigo.key(EnigoKey::RightArrow, enigo::Direction::Click),
+            "up" => enigo.key(EnigoKey::UpArrow, enigo::Direction::Click),
+            "down" => enigo.key(EnigoKey::DownArrow, enigo::Direction::Click),
+
+            // Word selection (Ctrl+Shift+Arrow)
+            "word left" => {
+                enigo.key(EnigoKey::Control, enigo::Direction::Press)?;
+                let r = enigo.key(EnigoKey::LeftArrow, enigo::Direction::Click);
+                enigo.key(EnigoKey::Control, enigo::Direction::Release)?;
+                r
+            }
+            "word right" => {
+                enigo.key(EnigoKey::Control, enigo::Direction::Press)?;
+                let r = enigo.key(EnigoKey::RightArrow, enigo::Direction::Click);
+                enigo.key(EnigoKey::Control, enigo::Direction::Release)?;
+                r
+            }
+
+            // Line selection
+            "home" => enigo.key(EnigoKey::Home, enigo::Direction::Click),
+            "end" => enigo.key(EnigoKey::End, enigo::Direction::Click),
+
+            // Page selection
+            "page up" => enigo.key(EnigoKey::PageUp, enigo::Direction::Click),
+            "page down" => enigo.key(EnigoKey::PageDown, enigo::Direction::Click),
+
+            // Common shift combos
+            "tab" => enigo.key(EnigoKey::Tab, enigo::Direction::Click),
+            "enter" | "return" => enigo.key(EnigoKey::Return, enigo::Direction::Click),
+
+            _ => {
+                enigo.key(EnigoKey::Shift, enigo::Direction::Release)?;
+                eprintln!("[SS9K] ⚠️ Unknown shift command: {}", base_cmd);
+                return Ok(false);
+            }
+        };
+
+        if result.is_err() {
+            enigo.key(EnigoKey::Shift, enigo::Direction::Release)?;
+            return Err(result.unwrap_err().into());
+        }
+
+        if times > 1 && i < times - 1 {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    enigo.key(EnigoKey::Shift, enigo::Direction::Release)?;
+
+    if times > 1 {
+        println!("[SS9K] ⇧ Shift+{} × {}", base_cmd, times);
+    } else {
+        println!("[SS9K] ⇧ Shift+{}", base_cmd);
+    }
+
+    Ok(true)
+}
+
 /// Execute spell mode - spell out letters using NATO phonetic, raw letters, or numbers
 /// Examples: "spell alpha bravo charlie" → "abc"
 ///           "spell capital alpha bravo" → "Ab"
@@ -839,6 +931,130 @@ fn execute_spell_mode(enigo: &mut Enigo, input: &str) -> Result<bool> {
 
     enigo.text(&result)?;
     println!("[SS9K] 🔤 Spelled: {}", result);
+    Ok(true)
+}
+
+/// Parse a key name to an EnigoKey (for hold/release functionality)
+fn parse_key_name(name: &str) -> Option<EnigoKey> {
+    match name.to_lowercase().as_str() {
+        // Letters (common for gaming: WASD)
+        "a" => Some(EnigoKey::Unicode('a')),
+        "b" => Some(EnigoKey::Unicode('b')),
+        "c" => Some(EnigoKey::Unicode('c')),
+        "d" => Some(EnigoKey::Unicode('d')),
+        "e" => Some(EnigoKey::Unicode('e')),
+        "f" => Some(EnigoKey::Unicode('f')),
+        "g" => Some(EnigoKey::Unicode('g')),
+        "h" => Some(EnigoKey::Unicode('h')),
+        "i" => Some(EnigoKey::Unicode('i')),
+        "j" => Some(EnigoKey::Unicode('j')),
+        "k" => Some(EnigoKey::Unicode('k')),
+        "l" => Some(EnigoKey::Unicode('l')),
+        "m" => Some(EnigoKey::Unicode('m')),
+        "n" => Some(EnigoKey::Unicode('n')),
+        "o" => Some(EnigoKey::Unicode('o')),
+        "p" => Some(EnigoKey::Unicode('p')),
+        "q" => Some(EnigoKey::Unicode('q')),
+        "r" => Some(EnigoKey::Unicode('r')),
+        "s" => Some(EnigoKey::Unicode('s')),
+        "t" => Some(EnigoKey::Unicode('t')),
+        "u" => Some(EnigoKey::Unicode('u')),
+        "v" => Some(EnigoKey::Unicode('v')),
+        "w" => Some(EnigoKey::Unicode('w')),
+        "x" => Some(EnigoKey::Unicode('x')),
+        "y" => Some(EnigoKey::Unicode('y')),
+        "z" => Some(EnigoKey::Unicode('z')),
+
+        // Modifiers
+        "shift" => Some(EnigoKey::Shift),
+        "control" | "ctrl" => Some(EnigoKey::Control),
+        "alt" => Some(EnigoKey::Alt),
+        "meta" | "super" | "windows" | "win" => Some(EnigoKey::Meta),
+
+        // Navigation
+        "up" | "arrow up" => Some(EnigoKey::UpArrow),
+        "down" | "arrow down" => Some(EnigoKey::DownArrow),
+        "left" | "arrow left" => Some(EnigoKey::LeftArrow),
+        "right" | "arrow right" => Some(EnigoKey::RightArrow),
+
+        // Common keys
+        "space" => Some(EnigoKey::Space),
+        "enter" | "return" => Some(EnigoKey::Return),
+        "tab" => Some(EnigoKey::Tab),
+        "escape" | "esc" => Some(EnigoKey::Escape),
+        "backspace" => Some(EnigoKey::Backspace),
+
+        _ => None,
+    }
+}
+
+/// Hold a key down (add to held keys list)
+fn execute_hold(enigo: &mut Enigo, key_name: &str) -> Result<bool> {
+    let key = match parse_key_name(key_name) {
+        Some(k) => k,
+        None => {
+            eprintln!("[SS9K] ⚠️ Unknown key to hold: {}", key_name);
+            return Ok(false);
+        }
+    };
+
+    // Press the key (hold it down)
+    enigo.key(key.clone(), enigo::Direction::Press)?;
+
+    // Add to held keys list
+    if let Ok(mut held) = HELD_KEYS.lock() {
+        // Avoid duplicates
+        if !held.iter().any(|k| std::mem::discriminant(k) == std::mem::discriminant(&key)) {
+            held.push(key.clone());
+        }
+    }
+
+    println!("[SS9K] 🔒 Holding: {}", key_name);
+    Ok(true)
+}
+
+/// Release a specific held key
+fn execute_release(enigo: &mut Enigo, key_name: &str) -> Result<bool> {
+    let key = match parse_key_name(key_name) {
+        Some(k) => k,
+        None => {
+            eprintln!("[SS9K] ⚠️ Unknown key to release: {}", key_name);
+            return Ok(false);
+        }
+    };
+
+    // Release the key
+    enigo.key(key.clone(), enigo::Direction::Release)?;
+
+    // Remove from held keys list
+    if let Ok(mut held) = HELD_KEYS.lock() {
+        held.retain(|k| std::mem::discriminant(k) != std::mem::discriminant(&key));
+    }
+
+    println!("[SS9K] 🔓 Released: {}", key_name);
+    Ok(true)
+}
+
+/// Release all held keys
+fn execute_release_all(enigo: &mut Enigo) -> Result<bool> {
+    let keys_to_release = if let Ok(mut held) = HELD_KEYS.lock() {
+        let keys = held.clone();
+        held.clear();
+        keys
+    } else {
+        Vec::new()
+    };
+
+    if keys_to_release.is_empty() {
+        println!("[SS9K] 🔓 No keys held");
+        return Ok(true);
+    }
+
+    for key in &keys_to_release {
+        enigo.key(key.clone(), enigo::Direction::Release)?;
+    }
+
+    println!("[SS9K] 🔓 Released {} key(s)", keys_to_release.len());
     Ok(true)
 }
 
@@ -1061,9 +1277,15 @@ fn print_help() {
     println!("║ MEDIA:      play, pause, next, previous, volume up/down, mute║");
     println!("║ REPETITION: [cmd] times [N], repeat, repeat [N]              ║");
     println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("║ SUBCOMMANDS (under 'command'):                               ║");
+    println!("║   shift [X]  - select text (shift+arrow, shift+word, etc.)   ║");
+    println!("║   spell [X]  - NATO spelling (alpha bravo = ab)              ║");
+    println!("║   hold [X]   - hold a key (for gaming, accessibility)        ║");
+    println!("║   release [X]/release all - release held keys                ║");
+    println!("╠══════════════════════════════════════════════════════════════╣");
     println!("║ LEADERS:    'command [X]'     - execute command              ║");
-    println!("║             'punctuation [X]' - insert symbol                ║");
-    println!("║             'spell [X Y Z]'   - spell out letters            ║");
+    println!("║             'punctuation [X]' - insert symbol (or 'punk')    ║");
+    println!("║             'emoji [X]'       - insert emoji                 ║");
     println!("╠══════════════════════════════════════════════════════════════╣");
     println!("║ CONFIG:     ~/.config/ss9k/config.toml                       ║");
     println!("║ DOCS:       https://github.com/sqrew/ss9k                    ║");
@@ -1083,7 +1305,7 @@ fn main() -> Result<()> {
     }
 
     println!("=================================");
-    println!("   SuperScreecher9000 v0.9.0");
+    println!("   SuperScreecher9000 v0.12.0");
     println!("   Press {} to screech", config.hotkey);
     println!("=================================");
 
