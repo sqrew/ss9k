@@ -261,45 +261,99 @@ fn execute_custom_command(cmd: &str) -> Result<()> {
 }
 
 /// Execute a voice command or type the text
+/// Uses leader words: "command X" for commands, "punctuation X" for symbols
 /// Returns true if a command was executed, false if text was typed
 fn execute_command(enigo: &mut Enigo, text: &str, custom_commands: &HashMap<String, String>, aliases: &HashMap<String, String>) -> Result<bool> {
     // First normalize using aliases
     let aliased = normalize_aliases(text, aliases);
 
-    // Strip punctuation for command matching
+    // Strip punctuation for parsing
     let trimmed: String = aliased
         .trim()
         .chars()
         .filter(|c| c.is_alphanumeric() || c.is_whitespace())
-        .collect();
+        .collect::<String>()
+        .to_lowercase();
 
-    // Check for commands
-    match trimmed.as_str() {
+    // Check for "command X" leader
+    if let Some(cmd) = trimmed.strip_prefix("command ") {
+        return execute_builtin_command(enigo, cmd.trim());
+    }
+
+    // Check for "punctuation X" leader
+    if let Some(punct) = trimmed.strip_prefix("punctuation ") {
+        return execute_punctuation(enigo, punct.trim());
+    }
+
+    // Check custom commands (user-defined phrases don't need leader)
+    for (phrase, cmd) in custom_commands {
+        if trimmed == phrase.to_lowercase() {
+            execute_custom_command(cmd)?;
+            return Ok(true);
+        }
+    }
+
+    // Not a command, type it (use aliased version)
+    enigo.text(&aliased)?;
+    println!("[SS9K] ⌨️ Typed!");
+    Ok(false)
+}
+
+/// Execute a built-in command (navigation, editing, media)
+fn execute_builtin_command(enigo: &mut Enigo, cmd: &str) -> Result<bool> {
+    match cmd {
         // Navigation
         "enter" | "new line" | "newline" | "return" => {
             enigo.key(EnigoKey::Return, enigo::Direction::Click)?;
             println!("[SS9K] ⌨️ Command: Enter");
-            Ok(true)
         }
         "tab" => {
             enigo.key(EnigoKey::Tab, enigo::Direction::Click)?;
             println!("[SS9K] ⌨️ Command: Tab");
-            Ok(true)
         }
         "escape" | "cancel" => {
             enigo.key(EnigoKey::Escape, enigo::Direction::Click)?;
             println!("[SS9K] ⌨️ Command: Escape");
-            Ok(true)
         }
-        "backspace" | "delete that" | "oops" => {
+        "backspace" | "delete" | "delete that" | "oops" => {
             enigo.key(EnigoKey::Backspace, enigo::Direction::Click)?;
             println!("[SS9K] ⌨️ Command: Backspace");
-            Ok(true)
         }
         "space" => {
             enigo.key(EnigoKey::Space, enigo::Direction::Click)?;
             println!("[SS9K] ⌨️ Command: Space");
-            Ok(true)
+        }
+        "up" | "arrow up" => {
+            enigo.key(EnigoKey::UpArrow, enigo::Direction::Click)?;
+            println!("[SS9K] ⌨️ Command: Up");
+        }
+        "down" | "arrow down" => {
+            enigo.key(EnigoKey::DownArrow, enigo::Direction::Click)?;
+            println!("[SS9K] ⌨️ Command: Down");
+        }
+        "left" | "arrow left" => {
+            enigo.key(EnigoKey::LeftArrow, enigo::Direction::Click)?;
+            println!("[SS9K] ⌨️ Command: Left");
+        }
+        "right" | "arrow right" => {
+            enigo.key(EnigoKey::RightArrow, enigo::Direction::Click)?;
+            println!("[SS9K] ⌨️ Command: Right");
+        }
+        "home" => {
+            enigo.key(EnigoKey::Home, enigo::Direction::Click)?;
+            println!("[SS9K] ⌨️ Command: Home");
+        }
+        "end" => {
+            enigo.key(EnigoKey::End, enigo::Direction::Click)?;
+            println!("[SS9K] ⌨️ Command: End");
+        }
+        "page up" => {
+            enigo.key(EnigoKey::PageUp, enigo::Direction::Click)?;
+            println!("[SS9K] ⌨️ Command: Page Up");
+        }
+        "page down" => {
+            enigo.key(EnigoKey::PageDown, enigo::Direction::Click)?;
+            println!("[SS9K] ⌨️ Command: Page Down");
         }
 
         // Editing shortcuts
@@ -308,35 +362,30 @@ fn execute_command(enigo: &mut Enigo, text: &str, custom_commands: &HashMap<Stri
             enigo.key(EnigoKey::Unicode('a'), enigo::Direction::Click)?;
             enigo.key(EnigoKey::Control, enigo::Direction::Release)?;
             println!("[SS9K] ⌨️ Command: Select All");
-            Ok(true)
         }
         "copy" | "copy that" => {
             enigo.key(EnigoKey::Control, enigo::Direction::Press)?;
             enigo.key(EnigoKey::Unicode('c'), enigo::Direction::Click)?;
             enigo.key(EnigoKey::Control, enigo::Direction::Release)?;
             println!("[SS9K] ⌨️ Command: Copy");
-            Ok(true)
         }
         "paste" => {
             enigo.key(EnigoKey::Control, enigo::Direction::Press)?;
             enigo.key(EnigoKey::Unicode('v'), enigo::Direction::Click)?;
             enigo.key(EnigoKey::Control, enigo::Direction::Release)?;
             println!("[SS9K] ⌨️ Command: Paste");
-            Ok(true)
         }
         "cut" => {
             enigo.key(EnigoKey::Control, enigo::Direction::Press)?;
             enigo.key(EnigoKey::Unicode('x'), enigo::Direction::Click)?;
             enigo.key(EnigoKey::Control, enigo::Direction::Release)?;
             println!("[SS9K] ⌨️ Command: Cut");
-            Ok(true)
         }
         "undo" => {
             enigo.key(EnigoKey::Control, enigo::Direction::Press)?;
             enigo.key(EnigoKey::Unicode('z'), enigo::Direction::Click)?;
             enigo.key(EnigoKey::Control, enigo::Direction::Release)?;
             println!("[SS9K] ⌨️ Command: Undo");
-            Ok(true)
         }
         "redo" => {
             enigo.key(EnigoKey::Control, enigo::Direction::Press)?;
@@ -345,64 +394,132 @@ fn execute_command(enigo: &mut Enigo, text: &str, custom_commands: &HashMap<Stri
             enigo.key(EnigoKey::Shift, enigo::Direction::Release)?;
             enigo.key(EnigoKey::Control, enigo::Direction::Release)?;
             println!("[SS9K] ⌨️ Command: Redo");
-            Ok(true)
         }
         "save" => {
             enigo.key(EnigoKey::Control, enigo::Direction::Press)?;
             enigo.key(EnigoKey::Unicode('s'), enigo::Direction::Click)?;
             enigo.key(EnigoKey::Control, enigo::Direction::Release)?;
             println!("[SS9K] ⌨️ Command: Save");
-            Ok(true)
+        }
+        "find" => {
+            enigo.key(EnigoKey::Control, enigo::Direction::Press)?;
+            enigo.key(EnigoKey::Unicode('f'), enigo::Direction::Click)?;
+            enigo.key(EnigoKey::Control, enigo::Direction::Release)?;
+            println!("[SS9K] ⌨️ Command: Find");
+        }
+        "close" | "close tab" => {
+            enigo.key(EnigoKey::Control, enigo::Direction::Press)?;
+            enigo.key(EnigoKey::Unicode('w'), enigo::Direction::Click)?;
+            enigo.key(EnigoKey::Control, enigo::Direction::Release)?;
+            println!("[SS9K] ⌨️ Command: Close");
+        }
+        "new tab" => {
+            enigo.key(EnigoKey::Control, enigo::Direction::Press)?;
+            enigo.key(EnigoKey::Unicode('t'), enigo::Direction::Click)?;
+            enigo.key(EnigoKey::Control, enigo::Direction::Release)?;
+            println!("[SS9K] ⌨️ Command: New Tab");
         }
 
         // Media controls
         "play" | "pause" | "play pause" | "playpause" => {
             enigo.key(EnigoKey::MediaPlayPause, enigo::Direction::Click)?;
             println!("[SS9K] 🎵 Command: Play/Pause");
-            Ok(true)
         }
         "next" | "next track" | "skip" => {
             enigo.key(EnigoKey::MediaNextTrack, enigo::Direction::Click)?;
             println!("[SS9K] 🎵 Command: Next Track");
-            Ok(true)
         }
         "previous" | "previous track" | "prev" | "back" => {
             enigo.key(EnigoKey::MediaPrevTrack, enigo::Direction::Click)?;
             println!("[SS9K] 🎵 Command: Previous Track");
-            Ok(true)
         }
         "volume up" | "louder" => {
             enigo.key(EnigoKey::VolumeUp, enigo::Direction::Click)?;
             println!("[SS9K] 🔊 Command: Volume Up");
-            Ok(true)
         }
         "volume down" | "quieter" | "softer" => {
             enigo.key(EnigoKey::VolumeDown, enigo::Direction::Click)?;
             println!("[SS9K] 🔉 Command: Volume Down");
-            Ok(true)
         }
         "mute" | "unmute" | "mute toggle" => {
             enigo.key(EnigoKey::VolumeMute, enigo::Direction::Click)?;
             println!("[SS9K] 🔇 Command: Mute Toggle");
-            Ok(true)
         }
 
-        // Check custom commands from config
         _ => {
-            // Try to match against custom commands (case-insensitive)
-            for (phrase, cmd) in custom_commands {
-                if trimmed == phrase.to_lowercase() {
-                    execute_custom_command(cmd)?;
-                    return Ok(true);
-                }
-            }
-
-            // Not a command, type it (use aliased version)
-            enigo.text(&aliased)?;
-            println!("[SS9K] ⌨️ Typed!");
-            Ok(false)
+            eprintln!("[SS9K] ⚠️ Unknown command: {}", cmd);
+            return Ok(false);
         }
     }
+    Ok(true)
+}
+
+/// Execute punctuation insertion
+fn execute_punctuation(enigo: &mut Enigo, punct: &str) -> Result<bool> {
+    let symbol = match punct {
+        // Basic punctuation
+        "period" | "dot" | "full stop" => ".",
+        "comma" => ",",
+        "question" | "question mark" => "?",
+        "exclamation" | "exclamation mark" | "bang" => "!",
+        "colon" => ":",
+        "semicolon" | "semi colon" => ";",
+        "ellipsis" => "...",
+
+        // Quotes
+        "quote" | "double quote" | "quotes" => "\"",
+        "single quote" | "apostrophe" => "'",
+        "backtick" | "grave" | "back tick" => "`",
+
+        // Brackets
+        "open paren" | "left paren" | "open parenthesis" => "(",
+        "close paren" | "right paren" | "close parenthesis" => ")",
+        "open bracket" | "left bracket" => "[",
+        "close bracket" | "right bracket" => "]",
+        "open brace" | "left brace" | "open curly" => "{",
+        "close brace" | "right brace" | "close curly" => "}",
+        "less than" | "open angle" | "left angle" => "<",
+        "greater than" | "close angle" | "right angle" => ">",
+
+        // Math/symbols
+        "plus" => "+",
+        "minus" | "dash" | "hyphen" => "-",
+        "equals" | "equal" | "equal sign" => "=",
+        "underscore" => "_",
+        "asterisk" | "star" => "*",
+        "slash" | "forward slash" => "/",
+        "backslash" | "back slash" => "\\",
+        "pipe" | "bar" => "|",
+        "caret" | "hat" => "^",
+        "tilde" => "~",
+        "percent" => "%",
+        "ampersand" | "and sign" => "&",
+        "at" | "at sign" => "@",
+        "hash" | "hashtag" | "pound" | "number sign" => "#",
+        "dollar" | "dollar sign" => "$",
+
+        // Programming
+        "arrow" | "fat arrow" => "=>",
+        "thin arrow" | "skinny arrow" => "->",
+        "double colon" | "scope" => "::",
+        "double equals" | "equals equals" => "==",
+        "not equals" | "not equal" => "!=",
+        "less than or equal" | "less equal" => "<=",
+        "greater than or equal" | "greater equal" => ">=",
+        "plus equals" => "+=",
+        "minus equals" => "-=",
+        "and and" | "double and" => "&&",
+        "or or" | "double or" => "||",
+
+        _ => {
+            eprintln!("[SS9K] ⚠️ Unknown punctuation: {}", punct);
+            return Ok(false);
+        }
+    };
+
+    enigo.text(symbol)?;
+    println!("[SS9K] ✏️ Punctuation: {}", symbol);
+    Ok(true)
 }
 
 /// Download a model from HuggingFace with progress bar
