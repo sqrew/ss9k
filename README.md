@@ -16,6 +16,7 @@ Press a key, speak, release. Your words appear at cursor. Or say a command. No c
 - **Voice commands** - Navigation, editing, media controls, custom shell commands
 - **Leader words** - No reserved words; say "command enter" vs just "enter"
 - **Punctuation** - 50+ symbols via voice: "punctuation arrow" → `=>`
+- **Spell mode** - NATO phonetic or raw letters: "spell alpha bravo charlie" → `abc`
 - **Hot-reload config** - Change settings without restarting
 - **Multiple models** - tiny (75MB) to large (3GB), pick your speed/accuracy tradeoff
 - **Cross-platform ready** - Built with portable Rust crates
@@ -65,6 +66,19 @@ SS9K uses **leader words** to distinguish commands from dictation:
 | **Brackets**    | open/close paren, bracket, brace, angle                                              |
 | **Symbols**     | plus, minus, equals, asterisk, slash, pipe, at, hash, etc.                           |
 | **Programming** | arrow (=>), thin arrow (->), double colon, equals equals, not equals, and and, or or |
+
+**Spell Mode** (say "spell" + letters/numbers):
+
+| Input                              | Output |
+|------------------------------------|--------|
+| `spell alpha bravo charlie`        | abc    |
+| `spell capital alpha bravo`        | Ab     |
+| `spell one two three`              | 123    |
+| `spell a b c`                      | abc    |
+| `spell cap mike cap sierra`        | MS     |
+
+Supports: NATO phonetic (alpha-zulu), number words (zero-nine), raw letters (a-z), raw digits (0-9).
+Capital modifiers: `capital`, `cap`, `uppercase`, `upper`.
 
 **Custom commands** (from config) work without a leader word.
 
@@ -163,6 +177,7 @@ Just remove unused models to save space if it's important.
 - [x] Async processing (non-blocking inference)
 - [x] Leader words (no reserved words - full vocabulary available)
 - [x] Punctuation commands (50+ symbols)
+- [x] Spell mode (NATO phonetic, raw letters, numbers)
 - [ ] Streaming transcription (type as you speak)
 - [ ] Cross-platform testing (Windows, macOS)
 

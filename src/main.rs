@@ -285,6 +285,11 @@ fn execute_command(enigo: &mut Enigo, text: &str, custom_commands: &HashMap<Stri
         return execute_punctuation(enigo, punct.trim());
     }
 
+    // Check for "spell X Y Z" leader
+    if let Some(letters) = trimmed.strip_prefix("spell ") {
+        return execute_spell_mode(enigo, letters.trim());
+    }
+
     // Check custom commands (user-defined phrases don't need leader)
     for (phrase, cmd) in custom_commands {
         if trimmed == phrase.to_lowercase() {
@@ -522,6 +527,113 @@ fn execute_punctuation(enigo: &mut Enigo, punct: &str) -> Result<bool> {
     Ok(true)
 }
 
+/// Execute spell mode - spell out letters using NATO phonetic, raw letters, or numbers
+/// Examples: "spell alpha bravo charlie" → "abc"
+///           "spell capital alpha bravo" → "Ab"
+///           "spell one two three" → "123"
+fn execute_spell_mode(enigo: &mut Enigo, input: &str) -> Result<bool> {
+    let words: Vec<&str> = input.split_whitespace().collect();
+    let mut result = String::new();
+    let mut next_capital = false;
+
+    for word in words {
+        // Check for capital modifier
+        if word == "capital" || word == "cap" || word == "uppercase" || word == "upper" {
+            next_capital = true;
+            continue;
+        }
+
+        // Try to map word to character
+        if let Some(ch) = word_to_char(word) {
+            if next_capital {
+                result.push(ch.to_ascii_uppercase());
+                next_capital = false;
+            } else {
+                result.push(ch);
+            }
+        } else {
+            eprintln!("[SS9K] ⚠️ Unknown spell word: {}", word);
+        }
+    }
+
+    if result.is_empty() {
+        eprintln!("[SS9K] ⚠️ Spell mode produced no characters");
+        return Ok(false);
+    }
+
+    enigo.text(&result)?;
+    println!("[SS9K] 🔤 Spelled: {}", result);
+    Ok(true)
+}
+
+/// Map a word to a single character (NATO, raw letter, number word, or raw digit)
+fn word_to_char(word: &str) -> Option<char> {
+    // NATO phonetic alphabet
+    let nato = match word {
+        "alpha" | "alfa" => Some('a'),
+        "bravo" => Some('b'),
+        "charlie" => Some('c'),
+        "delta" => Some('d'),
+        "echo" => Some('e'),
+        "foxtrot" => Some('f'),
+        "golf" => Some('g'),
+        "hotel" => Some('h'),
+        "india" => Some('i'),
+        "juliet" | "juliett" => Some('j'),
+        "kilo" => Some('k'),
+        "lima" => Some('l'),
+        "mike" => Some('m'),
+        "november" => Some('n'),
+        "oscar" => Some('o'),
+        "papa" => Some('p'),
+        "quebec" => Some('q'),
+        "romeo" => Some('r'),
+        "sierra" => Some('s'),
+        "tango" => Some('t'),
+        "uniform" => Some('u'),
+        "victor" => Some('v'),
+        "whiskey" => Some('w'),
+        "xray" | "x-ray" => Some('x'),
+        "yankee" => Some('y'),
+        "zulu" => Some('z'),
+        _ => None,
+    };
+    if nato.is_some() {
+        return nato;
+    }
+
+    // Number words
+    let number = match word {
+        "zero" => Some('0'),
+        "one" => Some('1'),
+        "two" => Some('2'),
+        "three" => Some('3'),
+        "four" => Some('4'),
+        "five" => Some('5'),
+        "six" => Some('6'),
+        "seven" => Some('7'),
+        "eight" => Some('8'),
+        "nine" => Some('9'),
+        _ => None,
+    };
+    if number.is_some() {
+        return number;
+    }
+
+    // Raw single letter (a-z)
+    if word.len() == 1 {
+        let ch = word.chars().next()?;
+        if ch.is_ascii_alphabetic() {
+            return Some(ch.to_ascii_lowercase());
+        }
+        if ch.is_ascii_digit() {
+            return Some(ch);
+        }
+    }
+
+    None
+}
+
 /// Download a model from HuggingFace with progress bar
 fn download_model(url: &str, dest: &PathBuf) -> Result<()> {
     println!("[SS9K] Downloading model from: {}", url);
@@ -641,7 +753,7 @@ fn main() -> Result<()> {
     }
 
     println!("=================================");
-    println!("   SuperScreecher9000 v0.6.0");
+    println!("   SuperScreecher9000 v0.8.0");
     println!("   Press {} to screech", config.hotkey);
     println!("=================================");
     println!("[SS9K] Hotkey: {} (mode: {})", config.hotkey, config.hotkey_mode);
