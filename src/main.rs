@@ -53,6 +53,9 @@ pub struct Config {
     /// Aliases for normalizing common misrecognitions (e.g., "e max" -> "emacs")
     #[serde(default)]
     pub aliases: HashMap<String, String>,
+    /// Suppress verbose output (transcriptions, command logs)
+    #[serde(default)]
+    pub quiet: bool,
 }
 
 impl Default for Config {
@@ -67,6 +70,7 @@ impl Default for Config {
             toggle_timeout_secs: 0,
             commands: HashMap::new(),
             aliases: HashMap::new(),
+            quiet: false,
         }
     }
 }
@@ -181,6 +185,32 @@ fn normalize_aliases(text: &str, aliases: &HashMap<String, String>) -> String {
     result
 }
 
+/// Normalize text for fuzzy command matching
+/// Collapses spaces and normalizes number words to digits
+fn normalize_for_matching(s: &str) -> String {
+    s.to_lowercase()
+        .split_whitespace()
+        .map(|word| {
+            // Convert number words to digits for consistent matching
+            match word {
+                "zero" => "0",
+                "one" => "1",
+                "two" | "to" | "too" => "2",
+                "three" => "3",
+                "four" | "for" => "4",
+                "five" => "5",
+                "six" => "6",
+                "seven" => "7",
+                "eight" => "8",
+                "nine" => "9",
+                "ten" => "10",
+                _ => word,
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("") // collapse all spaces
+}
+
 /// Expand environment variables in a string (e.g., "$TERMINAL" -> "kitty")
 fn expand_env_vars(s: &str) -> String {
     let mut result = s.to_string();
@@ -293,8 +323,10 @@ fn execute_command(enigo: &mut Enigo, text: &str, custom_commands: &HashMap<Stri
     }
 
     // Check custom commands (user-defined phrases don't need leader)
+    // Use fuzzy matching: normalize spaces and number words
+    let normalized_input = normalize_for_matching(&trimmed);
     for (phrase, cmd) in custom_commands {
-        if trimmed == phrase.to_lowercase() {
+        if normalized_input == normalize_for_matching(phrase) {
             execute_custom_command(cmd)?;
             return Ok(true);
         }
@@ -560,6 +592,27 @@ fn execute_single_builtin_command(enigo: &mut Enigo, cmd: &str) -> Result<bool> 
         "mute" | "unmute" | "mute toggle" => {
             enigo.key(EnigoKey::VolumeMute, enigo::Direction::Click)?;
             println!("[SS9K] 🔇 Command: Mute Toggle");
+        }
+
+        // Help & Config
+        "help" => {
+            print_help();
+        }
+        "config" | "settings" | "edit config" => {
+            let config_path = dirs::config_dir()
+                .map(|p| p.join("ss9k").join("config.toml"))
+                .unwrap_or_else(|| PathBuf::from("~/.config/ss9k/config.toml"));
+
+            let editor = std::env::var("EDITOR").unwrap_or_else(|_| "xdg-open".to_string());
+            println!("[SS9K] 📝 Opening config: {:?}", config_path);
+
+            if let Err(e) = std::process::Command::new(&editor)
+                .arg(&config_path)
+                .spawn()
+            {
+                eprintln!("[SS9K] ⚠️ Failed to open config: {}", e);
+                println!("[SS9K] Config path: {:?}", config_path);
+            }
         }
 
         _ => {
@@ -852,6 +905,29 @@ fn is_microphone(_name: &str) -> bool {
     true
 }
 
+/// Print the help/command reference
+fn print_help() {
+    println!();
+    println!("╔══════════════════════════════════════════════════════════════╗");
+    println!("║                    SS9K Voice Commands                       ║");
+    println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("║ NAVIGATION: enter, tab, escape, backspace, space             ║");
+    println!("║             up, down, left, right, home, end, page up/down   ║");
+    println!("║ EDITING:    select all, copy, paste, cut, undo, redo, save   ║");
+    println!("║             find, close tab, new tab                         ║");
+    println!("║ MEDIA:      play, pause, next, previous, volume up/down, mute║");
+    println!("║ REPETITION: [cmd] times [N], repeat, repeat [N]              ║");
+    println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("║ LEADERS:    'command [X]'     - execute command              ║");
+    println!("║             'punctuation [X]' - insert symbol                ║");
+    println!("║             'spell [X Y Z]'   - spell out letters            ║");
+    println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("║ CONFIG:     ~/.config/ss9k/config.toml                       ║");
+    println!("║ DOCS:       https://github.com/sqrew/ss9k                    ║");
+    println!("╚══════════════════════════════════════════════════════════════╝");
+    println!();
+}
+
 fn main() -> Result<()> {
     // Load configuration first so we can show the right hotkey
     let (config, config_path) = Config::load();
@@ -867,6 +943,10 @@ fn main() -> Result<()> {
     println!("   SuperScreecher9000 v0.9.0");
     println!("   Press {} to screech", config.hotkey);
     println!("=================================");
+
+    // Show help on startup for discoverability
+    print_help();
+
     println!("[SS9K] Hotkey: {} (mode: {})", config.hotkey, config.hotkey_mode);
     if !config.commands.is_empty() {
         println!("[SS9K] Custom commands: {} loaded", config.commands.len());
@@ -993,20 +1073,27 @@ fn main() -> Result<()> {
         std::thread::spawn(move || {
             println!("[SS9K] 🔧 Processor thread started");
             for audio_data in audio_rx {
-                println!("[SS9K] 🔄 Processing {} samples...", audio_data.len());
+                // Load current config (hot-reloadable)
+                let cfg = config.load();
+                let quiet = cfg.quiet;
+
+                if !quiet {
+                    println!("[SS9K] 🔄 Processing {} samples...", audio_data.len());
+                }
 
                 // Resample
                 match resample_audio(&audio_data, sample_rate, WHISPER_SAMPLE_RATE) {
                     Ok(resampled) => {
-                        println!("[SS9K] 🔄 Resampled to {} samples at 16kHz", resampled.len());
-
-                        // Load current config (hot-reloadable)
-                        let cfg = config.load();
+                        if !quiet {
+                            println!("[SS9K] 🔄 Resampled to {} samples at 16kHz", resampled.len());
+                        }
 
                         // Transcribe
                         match transcribe(&ctx, &resampled, &cfg) {
                             Ok(text) => {
-                                println!("[SS9K] 📝 Transcription: {}", text);
+                                if !quiet {
+                                    println!("[SS9K] 📝 Transcription: {}", text);
+                                }
                                 if !text.is_empty() {
                                     // Execute command or type at cursor
                                     match Enigo::new(&Settings::default()) {
