@@ -18,7 +18,10 @@ Press a key, speak, release. Your words appear at cursor. Or say a command. No c
 - **Punctuation** - 50+ symbols via voice: "punctuation arrow" → `=>`
 - **Spell mode** - NATO phonetic or raw letters: "spell alpha bravo charlie" → `abc`
 - **Repetition** - "command backspace times five" or "command repeat three"
+- **Fuzzy matching** - Custom commands match despite spacing/number variations
+- **Self-documenting** - "command help" shows all commands, "command config" opens config
 - **Hot-reload config** - Change settings without restarting
+- **Quiet mode** - Suppress verbose output once you're comfortable
 - **Multiple models** - tiny (75MB) to large (3GB), pick your speed/accuracy tradeoff
 - **Cross-platform ready** - Built with portable Rust crates
 
@@ -57,6 +60,7 @@ SS9K uses **leader words** to distinguish commands from dictation:
 | **Navigation** | enter, tab, escape, backspace, space, up, down, left, right, home, end, page up/down |
 | **Editing**    | select all, copy, paste, cut, undo, redo, save, find, close tab, new tab             |
 | **Media**      | play, pause, next, skip, previous, volume up, volume down, mute                      |
+| **Utility**    | help (show commands), config (open config), repeat, repeat [N]                       |
 
 **Punctuation** (say "punctuation" + any of these):
 
@@ -108,11 +112,13 @@ device = ""                  # audio device (empty = auto-detect)
 hotkey = "F12"               # see supported hotkeys below
 hotkey_mode = "hold"         # hold (release to stop) or toggle (press again to stop)
 toggle_timeout_secs = 0      # auto-stop after N seconds in toggle mode (0 = no timeout)
+quiet = false                # suppress verbose output (set true once comfortable)
 
 [commands]
 "open terminal" = "kitty"
 "open browser" = "$BROWSER"  # supports $ENV_VAR expansion
 "screenshot" = "flameshot gui"
+"workspace one" = "i3-msg 'workspace 1'"  # fuzzy matches "work space 1", "Workspace One", etc.
 
 [aliases]
 "taping" = "typing"          # fix consistent misrecognitions
