@@ -16,8 +16,10 @@ Press a key, speak, release. Your words appear at cursor. Or say a command. No c
 - **Voice commands** - Navigation, editing, media controls, custom shell commands
 - **Leader words** - No reserved words; say "command enter" vs just "enter"
 - **Punctuation** - 50+ symbols via voice: "punctuation arrow" → `=>`
-- **Spell mode** - NATO phonetic or raw letters: "spell alpha bravo charlie" → `abc`
+- **Spell mode** - NATO phonetic, letters, numbers, punctuation: "spell alpha at bravo dot com" → `a@b.com`
+- **Emoji** - 80+ emoji via voice: "emoji thumbs up" → 👍
 - **Repetition** - "command backspace times five" or "command repeat three"
+- **Mishearing tolerance** - Built-in handling for common Whisper errors (caret/carrot, colon/colin, etc.)
 - **Fuzzy matching** - Custom commands match despite spacing/number variations
 - **Self-documenting** - "command help" shows all commands, "command config" opens config
 - **Hot-reload config** - Change settings without restarting
@@ -51,7 +53,8 @@ SS9K uses **leader words** to distinguish commands from dictation:
 - `"command enter"` → presses Enter key
 - `"enter"` → types the word "enter"
 - `"punctuation period"` → types `.`
-- `"period"` → types the word "period"
+- `"spell alpha at bravo"` → types `a@b`
+- `"emoji fire"` → types 🔥
 
 **Commands** (say "command" + any of these):
 
@@ -72,18 +75,32 @@ SS9K uses **leader words** to distinguish commands from dictation:
 | **Symbols**     | plus, minus, equals, asterisk, slash, pipe, at, hash, etc.                           |
 | **Programming** | arrow (=>), thin arrow (->), double colon, equals equals, not equals, and and, or or |
 
-**Spell Mode** (say "spell" + letters/numbers):
+**Spell Mode** (say "spell" + letters/numbers/punctuation):
 
-| Input                              | Output |
-|------------------------------------|--------|
-| `spell alpha bravo charlie`        | abc    |
-| `spell capital alpha bravo`        | Ab     |
-| `spell one two three`              | 123    |
-| `spell a b c`                      | abc    |
-| `spell cap mike cap sierra`        | MS     |
+| Input                              | Output   |
+|------------------------------------|----------|
+| `spell alpha bravo charlie`        | abc      |
+| `spell capital alpha bravo`        | Ab       |
+| `spell one two three`              | 123      |
+| `spell alpha at bravo dot com`     | a@b.com  |
+| `spell alpha space bravo`          | a b      |
+| `spell alpha underscore bravo`     | a_b      |
 
-Supports: NATO phonetic (alpha-zulu), number words (zero-nine), raw letters (a-z), raw digits (0-9).
+Supports: NATO phonetic (alpha-zulu), number words (zero-nine), raw letters, raw digits, space, and punctuation (dot, at, dash, underscore, slash, colon, hash, etc.).
 Capital modifiers: `capital`, `cap`, `uppercase`, `upper`.
+
+**Emoji** (say "emoji" + name):
+
+| Input                | Output |
+|----------------------|--------|
+| `emoji smile`        | 😊     |
+| `emoji thumbs up`    | 👍     |
+| `emoji fire`         | 🔥     |
+| `emoji blue heart`   | 💙     |
+| `emoji crab`         | 🦀     |
+| `emoji poop`         | 💩     |
+
+80+ emoji available: faces, gestures, hearts (all colors), animals, objects, symbols. Say "emoji rust" for 🦀.
 
 **Repetition** (add "times N" to any command, or use "repeat"):
 
@@ -95,6 +112,13 @@ Capital modifiers: `capital`, `cap`, `uppercase`, `upper`.
 | `command repeat three`             | Repeat last command 3 times   |
 
 Works with number words (one-twenty) or digits. Handles common mishearings like "to"→2, "for"→4.
+
+**Mishearing tolerance**: SS9K handles common Whisper transcription errors automatically:
+- `caret` → also matches "carrot", "karet"
+- `colon` → also matches "colin", "cologne"
+- `asterisk` → also matches "asterix", "astrix"
+- `tilde` → also matches "tilda", "squiggle"
+- And many more built-in.
 
 **Custom commands** (from config) work without a leader word.
 

@@ -322,6 +322,11 @@ fn execute_command(enigo: &mut Enigo, text: &str, custom_commands: &HashMap<Stri
         return execute_spell_mode(enigo, letters.trim());
     }
 
+    // Check for "emoji X" leader
+    if let Some(emoji_name) = trimmed.strip_prefix("emoji ") {
+        return execute_emoji(enigo, emoji_name.trim());
+    }
+
     // Check custom commands (user-defined phrases don't need leader)
     // Use fuzzy matching: normalize spaces and number words
     let normalized_input = normalize_for_matching(&trimmed);
@@ -624,61 +629,62 @@ fn execute_single_builtin_command(enigo: &mut Enigo, cmd: &str) -> Result<bool> 
 }
 
 /// Execute punctuation insertion
+/// Includes common Whisper mishearings for robustness
 fn execute_punctuation(enigo: &mut Enigo, punct: &str) -> Result<bool> {
     let symbol = match punct {
         // Basic punctuation
-        "period" | "dot" | "full stop" => ".",
-        "comma" => ",",
+        "period" | "dot" | "full stop" | "point" => ".",
+        "comma" | "coma" => ",",
         "question" | "question mark" => "?",
-        "exclamation" | "exclamation mark" | "bang" => "!",
-        "colon" => ":",
-        "semicolon" | "semi colon" => ";",
-        "ellipsis" => "...",
+        "exclamation" | "exclamation mark" | "bang" | "exclamation point" => "!",
+        "colon" | "colin" | "cologne" => ":",
+        "semicolon" | "semi colon" | "semi colin" | "semicolin" => ";",
+        "ellipsis" | "ellipses" | "dot dot dot" => "...",
 
         // Quotes
-        "quote" | "double quote" | "quotes" => "\"",
-        "single quote" | "apostrophe" => "'",
-        "backtick" | "grave" | "back tick" => "`",
+        "quote" | "double quote" | "quotes" | "quotation" => "\"",
+        "single quote" | "apostrophe" | "apostrophy" => "'",
+        "backtick" | "grave" | "back tick" | "back tic" | "backtic" => "`",
 
         // Brackets
-        "open paren" | "left paren" | "open parenthesis" => "(",
-        "close paren" | "right paren" | "close parenthesis" => ")",
-        "open bracket" | "left bracket" => "[",
-        "close bracket" | "right bracket" => "]",
-        "open brace" | "left brace" | "open curly" => "{",
-        "close brace" | "right brace" | "close curly" => "}",
-        "less than" | "open angle" | "left angle" => "<",
-        "greater than" | "close angle" | "right angle" => ">",
+        "open paren" | "left paren" | "open parenthesis" | "open parentheses" => "(",
+        "close paren" | "right paren" | "close parenthesis" | "close parentheses" => ")",
+        "open bracket" | "left bracket" | "open square" => "[",
+        "close bracket" | "right bracket" | "close square" => "]",
+        "open brace" | "left brace" | "open curly" | "open curley" => "{",
+        "close brace" | "right brace" | "close curly" | "close curley" => "}",
+        "less than" | "open angle" | "left angle" | "left chevron" => "<",
+        "greater than" | "close angle" | "right angle" | "right chevron" => ">",
 
         // Math/symbols
-        "plus" => "+",
-        "minus" | "dash" | "hyphen" => "-",
-        "equals" | "equal" | "equal sign" => "=",
-        "underscore" => "_",
-        "asterisk" | "star" => "*",
-        "slash" | "forward slash" => "/",
-        "backslash" | "back slash" => "\\",
-        "pipe" | "bar" => "|",
-        "caret" | "hat" => "^",
-        "tilde" => "~",
-        "percent" => "%",
-        "ampersand" | "and sign" => "&",
-        "at" | "at sign" => "@",
-        "hash" | "hashtag" | "pound" | "number sign" => "#",
-        "dollar" | "dollar sign" => "$",
+        "plus" | "positive" => "+",
+        "minus" | "dash" | "hyphen" | "negative" => "-",
+        "equals" | "equal" | "equal sign" | "equals sign" => "=",
+        "underscore" | "under score" | "underline" => "_",
+        "asterisk" | "star" | "asterix" | "astrix" | "asterisks" => "*",
+        "slash" | "forward slash" | "forwardslash" => "/",
+        "backslash" | "back slash" | "backward slash" => "\\",
+        "pipe" | "bar" | "vertical bar" | "vertical line" => "|",
+        "caret" | "carrot" | "karet" | "carret" | "hat" => "^",
+        "tilde" | "tilda" | "tildy" | "squiggle" => "~",
+        "percent" | "percentage" | "per cent" => "%",
+        "ampersand" | "and sign" | "and symbol" => "&",
+        "at" | "at sign" | "at symbol" => "@",
+        "hash" | "hashtag" | "pound" | "number sign" | "hash tag" | "octothorpe" => "#",
+        "dollar" | "dollar sign" | "dollars" => "$",
 
         // Programming
-        "arrow" | "fat arrow" => "=>",
-        "thin arrow" | "skinny arrow" => "->",
-        "double colon" | "scope" => "::",
-        "double equals" | "equals equals" => "==",
-        "not equals" | "not equal" => "!=",
-        "less than or equal" | "less equal" => "<=",
-        "greater than or equal" | "greater equal" => ">=",
-        "plus equals" => "+=",
-        "minus equals" => "-=",
-        "and and" | "double and" => "&&",
-        "or or" | "double or" => "||",
+        "arrow" | "fat arrow" | "thick arrow" | "rocket" => "=>",
+        "thin arrow" | "skinny arrow" | "dash arrow" | "hyphen arrow" => "->",
+        "double colon" | "scope" | "colon colon" | "colin colin" => "::",
+        "double equals" | "equals equals" | "equal equal" => "==",
+        "not equals" | "not equal" | "bang equals" | "exclamation equals" => "!=",
+        "less than or equal" | "less equal" | "less or equal" => "<=",
+        "greater than or equal" | "greater equal" | "greater or equal" => ">=",
+        "plus equals" | "plus equal" => "+=",
+        "minus equals" | "minus equal" | "dash equals" => "-=",
+        "and and" | "double and" | "ampersand ampersand" => "&&",
+        "or or" | "double or" | "pipe pipe" | "double pipe" => "||",
 
         _ => {
             eprintln!("[SS9K] ⚠️ Unknown punctuation: {}", punct);
@@ -688,6 +694,112 @@ fn execute_punctuation(enigo: &mut Enigo, punct: &str) -> Result<bool> {
 
     enigo.text(symbol)?;
     println!("[SS9K] ✏️ Punctuation: {}", symbol);
+    Ok(true)
+}
+
+/// Execute emoji insertion
+fn execute_emoji(enigo: &mut Enigo, name: &str) -> Result<bool> {
+    let emoji = match name {
+        // Faces
+        "smile" | "happy" => "😊",
+        "laugh" | "lol" | "laughing" => "😂",
+        "joy" => "🤣",
+        "wink" => "😉",
+        "love" | "heart eyes" => "😍",
+        "cool" | "sunglasses" => "😎",
+        "think" | "thinking" | "hmm" => "🤔",
+        "cry" | "sad" | "crying" => "😭",
+        "angry" | "mad" => "😠",
+        "skull" | "dead" => "💀",
+        "eye roll" | "roll eyes" => "🙄",
+        "shush" | "quiet" => "🤫",
+        "mind blown" | "exploding head" => "🤯",
+        "clown" => "🤡",
+        "nerd" => "🤓",
+        "sick" | "ill" => "🤢",
+        "scream" => "😱",
+
+        // Gestures
+        "thumbs up" | "thumb up" | "yes" => "👍",
+        "thumbs down" | "thumb down" | "no" => "👎",
+        "clap" | "clapping" => "👏",
+        "wave" | "hi" | "bye" => "👋",
+        "shrug" => "🤷",
+        "facepalm" | "face palm" => "🤦",
+        "pray" | "please" | "thanks" => "🙏",
+        "muscle" | "strong" | "flex" => "💪",
+        "point up" => "☝️",
+        "point right" => "👉",
+        "point left" => "👈",
+        "point down" => "👇",
+        "ok" | "okay" => "👌",
+        "peace" | "victory" => "✌️",
+        "rock" | "metal" => "🤘",
+        "middle finger" | "fuck you" => "🖕",
+
+        // Hearts & love
+        "heart" | "red heart" => "❤️",
+        "blue heart" => "💙",
+        "green heart" => "💚",
+        "yellow heart" => "💛",
+        "purple heart" => "💜",
+        "black heart" => "🖤",
+        "white heart" => "🤍",
+        "orange heart" => "🧡",
+        "broken heart" => "💔",
+        "sparkling heart" => "💖",
+        "kiss" => "😘",
+
+        // Animals
+        "dog" | "wag" => "🐕",
+        "cat" => "🐈",
+        "crab" | "rust" => "🦀",
+        "snake" => "🐍",
+        "bug" | "beetle" => "🐛",
+        "butterfly" => "🦋",
+        "unicorn" => "🦄",
+        "dragon" => "🐉",
+        "shark" => "🦈",
+        "whale" => "🐋",
+        "octopus" => "🐙",
+
+        // Objects & symbols
+        "fire" | "lit" => "🔥",
+        "star" | "gold star" => "⭐",
+        "sparkles" | "sparkle" => "✨",
+        "lightning" | "zap" => "⚡",
+        "poop" | "shit" => "💩",
+        "100" | "hundred" => "💯",
+        "check" | "checkmark" => "✅",
+        "x" | "cross" => "❌",
+        "warning" => "⚠️",
+        "question" => "❓",
+        "exclamation" => "❗",
+        "pin" | "pushpin" => "📌",
+        "bulb" | "idea" | "lightbulb" => "💡",
+        "gear" | "settings" => "⚙️",
+        "rocket" => "🚀",
+        "trophy" => "🏆",
+        "medal" => "🏅",
+        "crown" => "👑",
+        "money" | "cash" => "💰",
+        "gem" | "diamond" => "💎",
+        "gift" | "present" => "🎁",
+        "party" | "celebrate" => "🎉",
+        "balloon" => "🎈",
+        "beer" | "cheers" => "🍺",
+        "coffee" => "☕",
+        "pizza" => "🍕",
+        "taco" => "🌮",
+
+        _ => {
+            eprintln!("[SS9K] ⚠️ Unknown emoji: {}", name);
+            return Ok(false);
+        }
+    };
+
+    enigo.text(emoji)?;
+    println!("[SS9K] 😀 Emoji: {}", emoji);
     Ok(true)
 }
 
@@ -782,6 +894,37 @@ fn word_to_char(word: &str) -> Option<char> {
     };
     if number.is_some() {
         return number;
+    }
+
+    // Space and punctuation (for spelling emails, URLs, etc.)
+    // Includes common Whisper mishearings
+    let punct = match word {
+        "space" => Some(' '),
+        "period" | "dot" | "point" => Some('.'),
+        "comma" | "coma" => Some(','),
+        "at" | "at sign" => Some('@'),
+        "dash" | "hyphen" | "minus" => Some('-'),
+        "underscore" | "under score" | "underline" => Some('_'),
+        "slash" | "forward slash" => Some('/'),
+        "colon" | "colin" | "cologne" => Some(':'),
+        "semicolon" | "semi colon" | "semi colin" => Some(';'),
+        "hash" | "pound" | "hashtag" | "hash tag" | "octothorpe" => Some('#'),
+        "dollar" | "dollars" => Some('$'),
+        "percent" | "percentage" => Some('%'),
+        "ampersand" | "and" => Some('&'),
+        "asterisk" | "star" | "asterix" | "astrix" => Some('*'),
+        "plus" | "positive" => Some('+'),
+        "equals" | "equal" => Some('='),
+        "question" => Some('?'),
+        "exclamation" | "bang" => Some('!'),
+        "tilde" | "tilda" | "tildy" | "squiggle" => Some('~'),
+        "caret" | "carrot" | "karet" | "carret" | "hat" => Some('^'),
+        "pipe" | "bar" | "vertical" => Some('|'),
+        "backslash" | "back slash" => Some('\\'),
+        _ => None,
+    };
+    if punct.is_some() {
+        return punct;
     }
 
     // Raw single letter (a-z)
