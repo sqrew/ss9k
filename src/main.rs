@@ -22,6 +22,8 @@ static RECORDING: AtomicBool = AtomicBool::new(false);
 static CALLBACK_COUNT: AtomicUsize = AtomicUsize::new(0);
 // Session ID to prevent stale timeout threads from stopping new recordings
 static RECORDING_SESSION: AtomicU64 = AtomicU64::new(0);
+// Last executed command for "repeat" functionality
+static LAST_COMMAND: std::sync::LazyLock<Mutex<Option<String>>> = std::sync::LazyLock::new(|| Mutex::new(None));
 
 const WHISPER_SAMPLE_RATE: u32 = 16000;
 
@@ -305,7 +307,116 @@ fn execute_command(enigo: &mut Enigo, text: &str, custom_commands: &HashMap<Stri
 }
 
 /// Execute a built-in command (navigation, editing, media)
+/// Handles "times N" suffix and "repeat" command
 fn execute_builtin_command(enigo: &mut Enigo, cmd: &str) -> Result<bool> {
+    // Parse "times N" suffix (e.g., "backspace times 5")
+    let (base_cmd, count) = parse_times_suffix(cmd);
+
+    // Handle "repeat" command
+    if base_cmd == "repeat" || base_cmd.starts_with("repeat ") {
+        let repeat_count = if base_cmd == "repeat" {
+            count.max(1) // "repeat" alone = 1, "repeat times 3" = 3
+        } else {
+            // "repeat 5" or "repeat five" - parse number word
+            base_cmd.strip_prefix("repeat ")
+                .and_then(|s| s.split_whitespace().next())
+                .and_then(parse_number_word)
+                .unwrap_or(1)
+                .max(1) * count.max(1)
+        };
+
+        let last_cmd = LAST_COMMAND.lock().ok().and_then(|g| g.clone());
+        if let Some(ref cmd_to_repeat) = last_cmd {
+            println!("[SS9K] 🔁 Repeating '{}' {} time(s)", cmd_to_repeat, repeat_count);
+            for _ in 0..repeat_count {
+                execute_single_builtin_command(enigo, cmd_to_repeat)?;
+            }
+            return Ok(true);
+        } else {
+            eprintln!("[SS9K] ⚠️ Nothing to repeat");
+            return Ok(false);
+        }
+    }
+
+    // Execute the command count times
+    for i in 0..count.max(1) {
+        if !execute_single_builtin_command(enigo, base_cmd)? {
+            return Ok(false);
+        }
+        if count > 1 && i < count - 1 {
+            // Small delay between repeated commands for reliability
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    // Store as last command (for repeat)
+    if let Ok(mut last) = LAST_COMMAND.lock() {
+        *last = Some(base_cmd.to_string());
+    }
+
+    if count > 1 {
+        println!("[SS9K] 🔁 Executed {} times", count);
+    }
+
+    Ok(true)
+}
+
+/// Parse a number from digit or word form
+fn parse_number_word(s: &str) -> Option<usize> {
+    // Try digit first
+    if let Ok(n) = s.parse::<usize>() {
+        return Some(n);
+    }
+    // Try word form
+    match s {
+        "zero" => Some(0),
+        "one" => Some(1),
+        "two" | "to" | "too" => Some(2), // common mishearings
+        "three" => Some(3),
+        "four" | "for" => Some(4),
+        "five" => Some(5),
+        "six" => Some(6),
+        "seven" => Some(7),
+        "eight" => Some(8),
+        "nine" => Some(9),
+        "ten" => Some(10),
+        "eleven" => Some(11),
+        "twelve" => Some(12),
+        "thirteen" => Some(13),
+        "fourteen" => Some(14),
+        "fifteen" => Some(15),
+        "sixteen" => Some(16),
+        "seventeen" => Some(17),
+        "eighteen" => Some(18),
+        "nineteen" => Some(19),
+        "twenty" => Some(20),
+        _ => None,
+    }
+}
+
+/// Parse "times N" suffix from a command
+/// Returns (base_command, count) where count is 0 if no suffix found
+fn parse_times_suffix(cmd: &str) -> (&str, usize) {
+    // Check for "times N" at the end (e.g., "backspace times 5" or "backspace times five")
+    if let Some(idx) = cmd.rfind(" times ") {
+        let after = &cmd[idx + 7..].trim();
+        if let Some(n) = parse_number_word(after) {
+            return (&cmd[..idx], n);
+        }
+    }
+    // Check for "X times" pattern (e.g., "backspace 5 times" or "backspace five times")
+    let words: Vec<&str> = cmd.split_whitespace().collect();
+    if words.len() >= 2 && words[words.len() - 1] == "times" {
+        if let Some(n) = parse_number_word(words[words.len() - 2]) {
+            let end_idx = cmd.rfind(words[words.len() - 2]).unwrap_or(cmd.len());
+            return (cmd[..end_idx].trim(), n);
+        }
+    }
+    (cmd, 0)
+}
+
+/// Execute a single built-in command once (internal helper)
+fn execute_single_builtin_command(enigo: &mut Enigo, cmd: &str) -> Result<bool> {
     match cmd {
         // Navigation
         "enter" | "new line" | "newline" | "return" => {
@@ -753,7 +864,7 @@ fn main() -> Result<()> {
     }
 
     println!("=================================");
-    println!("   SuperScreecher9000 v0.8.0");
+    println!("   SuperScreecher9000 v0.9.0");
     println!("   Press {} to screech", config.hotkey);
     println!("=================================");
     println!("[SS9K] Hotkey: {} (mode: {})", config.hotkey, config.hotkey_mode);

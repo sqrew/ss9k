@@ -17,6 +17,7 @@ Press a key, speak, release. Your words appear at cursor. Or say a command. No c
 - **Leader words** - No reserved words; say "command enter" vs just "enter"
 - **Punctuation** - 50+ symbols via voice: "punctuation arrow" → `=>`
 - **Spell mode** - NATO phonetic or raw letters: "spell alpha bravo charlie" → `abc`
+- **Repetition** - "command backspace times five" or "command repeat three"
 - **Hot-reload config** - Change settings without restarting
 - **Multiple models** - tiny (75MB) to large (3GB), pick your speed/accuracy tradeoff
 - **Cross-platform ready** - Built with portable Rust crates
@@ -79,6 +80,17 @@ SS9K uses **leader words** to distinguish commands from dictation:
 
 Supports: NATO phonetic (alpha-zulu), number words (zero-nine), raw letters (a-z), raw digits (0-9).
 Capital modifiers: `capital`, `cap`, `uppercase`, `upper`.
+
+**Repetition** (add "times N" to any command, or use "repeat"):
+
+| Input                              | Effect                        |
+|------------------------------------|-------------------------------|
+| `command backspace times five`     | Delete 5 characters           |
+| `command down times ten`           | Move down 10 lines            |
+| `command repeat`                   | Repeat last command once      |
+| `command repeat three`             | Repeat last command 3 times   |
+
+Works with number words (one-twenty) or digits. Handles common mishearings like "to"→2, "for"→4.
 
 **Custom commands** (from config) work without a leader word.
 
@@ -164,22 +176,6 @@ For people who:
 
 5GB for a fully offline accessibility tool is nothing. Your voice stays on your machine.
 Just remove unused models to save space if it's important.
-
-## Roadmap
-
-- [x] Config file (model, hotkey, device selection)
-- [x] Model auto-download on first run
-- [x] Voice commands (navigation, editing, media)
-- [x] Custom command mapping (voice → shell)
-- [x] Alias system (fix misrecognitions)
-- [x] Toggle mode + timeout
-- [x] Hot-reload config
-- [x] Async processing (non-blocking inference)
-- [x] Leader words (no reserved words - full vocabulary available)
-- [x] Punctuation commands (50+ symbols)
-- [x] Spell mode (NATO phonetic, raw letters, numbers)
-- [ ] Streaming transcription (type as you speak)
-- [ ] Cross-platform testing (Windows, macOS)
 
 ## License
 
