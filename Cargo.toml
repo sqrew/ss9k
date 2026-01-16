@@ -1,6 +1,6 @@
 [package]
 name = "ss9k"
-version = "0.1.0"
+version = "0.13.0"
 edition = "2024"
 description = "SuperScreecher9000 - Screech at your computer. It listens."
 

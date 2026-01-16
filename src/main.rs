@@ -1305,7 +1305,7 @@ fn main() -> Result<()> {
     }
 
     println!("=================================");
-    println!("   SuperScreecher9000 v0.12.0");
+    println!("   SuperScreecher9000 v0.13.0");
     println!("   Press {} to screech", config.hotkey);
     println!("=================================");
 
