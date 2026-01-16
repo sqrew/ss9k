@@ -37,7 +37,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libxdo-dev libclang-dev
+          sudo apt-get install -y libasound2-dev libxdo-dev libclang-dev libx11-dev libxi-dev libxtst-dev
 
       # Windows dependencies
       - name: Install LLVM (Windows)
