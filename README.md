@@ -32,7 +32,7 @@ Press a key, speak, release. Your words appear at cursor. Or say a command. No c
 ## Installation
 
 ```bash
-# Clone and build
+# Clone and build (Linux)
 git clone https://github.com/sqrew/ss9k
 cd ss9k
 cargo build --release
@@ -40,6 +40,32 @@ cargo build --release
 # Run it - model downloads automatically on first launch
 ./target/release/ss9k
 ```
+
+### Windows Installation
+
+Windows requires additional dependencies:
+
+1. **Visual Studio Build Tools** with "Desktop development with C++" workload
+   - Download from [Visual Studio Downloads](https://visualstudio.microsoft.com/downloads/)
+   - Select "Build Tools for Visual Studio"
+   - In the installer, check "Desktop development with C++"
+
+2. **LLVM/Clang** (needed for whisper-rs bindings)
+   - `winget install LLVM.LLVM` or download from [LLVM Releases](https://github.com/llvm/llvm-project/releases)
+   - Make sure to add to PATH during installation
+
+3. **Rust** via [rustup](https://rustup.rs)
+
+4. **Git** from [git-scm.com](https://git-scm.com)
+
+Then build from **"x64 Native Tools Command Prompt for VS"**:
+```cmd
+git clone https://github.com/sqrew/ss9k
+cd ss9k
+cargo build --release
+```
+
+Yeah, it's a lot. Linux is easier. But it works!
 
 ## Usage
 
@@ -179,6 +205,7 @@ quiet = false                # suppress verbose output (set true once comfortabl
 
 [aliases]
 "taping" = "typing"          # fix consistent misrecognitions
+"come and" = "command"       # common Whisper mishearing
 ```
 
 **Supported hotkeys:** F1-F12, ScrollLock, Pause, PrintScreen, Insert, Home, End, PageUp, PageDown, Num0-Num9
