@@ -37,6 +37,20 @@ impl Hash for HeldKey {
     }
 }
 
+/// Case transformation modes for dictation
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum CaseMode {
+    #[default]
+    Off,        // passthrough
+    Snake,      // hello_world
+    Camel,      // helloWorld
+    Pascal,     // HelloWorld
+    Kebab,      // hello-world
+    Screaming,  // HELLO_WORLD
+    Caps,       // HELLO WORLD
+    Lower,      // hello world
+}
+
 // Statics for command state
 pub static LAST_COMMAND: std::sync::LazyLock<Mutex<Option<String>>> =
     std::sync::LazyLock::new(|| Mutex::new(None));
@@ -44,6 +58,8 @@ pub static HELD_KEYS: std::sync::LazyLock<Mutex<HashSet<HeldKey>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
 pub static HOLD_THREAD_RUNNING: AtomicBool = AtomicBool::new(false);
 pub static KEY_REPEAT_MS: AtomicU64 = AtomicU64::new(50);
+pub static CURRENT_MODE: std::sync::LazyLock<Mutex<CaseMode>> =
+    std::sync::LazyLock::new(|| Mutex::new(CaseMode::Off));
 
 /// Normalize text by applying aliases (e.g., "e max" -> "emacs")
 pub fn normalize_aliases(text: &str, aliases: &HashMap<String, String>) -> String {
@@ -97,6 +113,99 @@ pub fn expand_env_vars(s: &str) -> String {
         result = format!("{}{}{}", &result[..start], value, &rest[end..]);
     }
     result
+}
+
+/// Capitalize the first letter of a word
+fn capitalize_word(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
+/// Apply case transformation based on current mode
+pub fn apply_case_mode(text: &str) -> String {
+    let mode = CURRENT_MODE.lock().map(|m| *m).unwrap_or(CaseMode::Off);
+
+    if mode == CaseMode::Off {
+        return text.to_string();
+    }
+
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() {
+        return text.to_string();
+    }
+
+    match mode {
+        CaseMode::Off => text.to_string(),
+        CaseMode::Snake => words.iter().map(|w| w.to_lowercase()).collect::<Vec<_>>().join("_"),
+        CaseMode::Camel => {
+            let mut result = words[0].to_lowercase();
+            for word in &words[1..] {
+                result.push_str(&capitalize_word(&word.to_lowercase()));
+            }
+            result
+        }
+        CaseMode::Pascal => words.iter().map(|w| capitalize_word(&w.to_lowercase())).collect(),
+        CaseMode::Kebab => words.iter().map(|w| w.to_lowercase()).collect::<Vec<_>>().join("-"),
+        CaseMode::Screaming => words.iter().map(|w| w.to_uppercase()).collect::<Vec<_>>().join("_"),
+        CaseMode::Caps => words.iter().map(|w| w.to_uppercase()).collect::<Vec<_>>().join(" "),
+        CaseMode::Lower => words.iter().map(|w| w.to_lowercase()).collect::<Vec<_>>().join(" "),
+    }
+}
+
+/// Set the current case mode
+pub fn set_case_mode(mode: CaseMode) {
+    if let Ok(mut current) = CURRENT_MODE.lock() {
+        *current = mode;
+    }
+}
+
+/// Get the current case mode
+pub fn get_case_mode() -> CaseMode {
+    CURRENT_MODE.lock().map(|m| *m).unwrap_or(CaseMode::Off)
+}
+
+/// Parse a mode name into CaseMode
+pub fn parse_mode_name(name: &str) -> Option<CaseMode> {
+    match name.to_lowercase().as_str() {
+        "off" | "normal" | "default" => Some(CaseMode::Off),
+        "snake" | "snek" => Some(CaseMode::Snake),
+        "camel" => Some(CaseMode::Camel),
+        "pascal" => Some(CaseMode::Pascal),
+        "kebab" | "kebob" => Some(CaseMode::Kebab),
+        "screaming" | "scream" | "yelling" | "yell" => Some(CaseMode::Screaming),
+        "caps" | "upper" | "uppercase" | "capital" | "capitals" => Some(CaseMode::Caps),
+        "lower" | "lowercase" => Some(CaseMode::Lower),
+        _ => None,
+    }
+}
+
+/// Execute mode command
+pub fn execute_mode(mode_name: &str) -> Result<bool> {
+    match parse_mode_name(mode_name) {
+        Some(mode) => {
+            set_case_mode(mode);
+            let mode_str = match mode {
+                CaseMode::Off => "off (normal)",
+                CaseMode::Snake => "snake_case",
+                CaseMode::Camel => "camelCase",
+                CaseMode::Pascal => "PascalCase",
+                CaseMode::Kebab => "kebab-case",
+                CaseMode::Screaming => "SCREAMING_SNAKE_CASE",
+                CaseMode::Caps => "CAPS LOCK",
+                CaseMode::Lower => "lowercase",
+            };
+            println!("[SS9K] 🔤 Mode: {}", mode_str);
+            Ok(true)
+        }
+        None => {
+            eprintln!("[SS9K] ⚠️ Unknown mode: {}", mode_name);
+            eprintln!("[SS9K] Available: off, snake, camel, pascal, kebab, screaming, caps, lower");
+            Ok(false)
+        }
+    }
 }
 
 /// Execute a custom shell command
@@ -201,9 +310,16 @@ pub fn execute_command(
         }
     }
 
-    // Default: type the text as-is
-    enigo.text(&aliased)?;
-    println!("[SS9K] ⌨️ Typed!");
+    // Default: type the text with case mode applied
+    let output = apply_case_mode(&aliased);
+    enigo.text(&output)?;
+
+    let mode = get_case_mode();
+    if mode != CaseMode::Off {
+        println!("[SS9K] ⌨️ Typed ({:?}): {}", mode, output);
+    } else {
+        println!("[SS9K] ⌨️ Typed!");
+    }
     Ok(false)
 }
 
@@ -253,6 +369,10 @@ pub fn execute_builtin_command(enigo: &mut Enigo, cmd: &str) -> Result<bool> {
     }
     if let Some(release_key) = base_cmd.strip_prefix("release ") {
         return execute_release(enigo, release_key.trim());
+    }
+
+    if let Some(mode_name) = base_cmd.strip_prefix("mode ") {
+        return execute_mode(mode_name.trim());
     }
 
     for i in 0..count.max(1) {
@@ -732,6 +852,8 @@ pub fn print_help() {
     println!("║   [leader] release [X] - release held key(s)                 ║");
     println!("║   [leader] emoji [X]   - insert emoji (smile, fire, etc.)    ║");
     println!("║   [leader] punctuation [X] - insert symbol (comma, arrow)    ║");
+    println!("║   [leader] mode [X]    - case mode: snake, camel, pascal,    ║");
+    println!("║                          kebab, screaming, caps, lower, off  ║");
     println!("╠══════════════════════════════════════════════════════════════╣");
     println!("║ CONFIG:     ~/.config/ss9k/config.toml                       ║");
     println!("║ DOCS:       https://github.com/sqrew/ss9k                    ║");

@@ -163,6 +163,23 @@ Supports: all letters (a-z), modifiers (shift, control/ctrl, alt, meta/super/win
 
 80+ emoji available: faces, gestures, hearts (all colors), animals, objects, symbols. Say "command emoji rust" for 🦀.
 
+**Case Modes** (say "command mode" + mode name):
+
+| Mode | Effect | Example Output |
+|------|--------|----------------|
+| `snake` | snake_case | hello_world |
+| `camel` | camelCase | helloWorld |
+| `pascal` | PascalCase | HelloWorld |
+| `kebab` | kebab-case | hello-world |
+| `screaming` | SCREAMING_SNAKE | HELLO_WORLD |
+| `caps` | ALL CAPS | HELLO WORLD |
+| `lower` | lowercase | hello world |
+| `off` | normal (default) | hello world |
+
+Mode persists until changed. Say "command mode snake", then dictate naturally—all text becomes snake_case. Say "command mode off" to return to normal.
+
+**Tip:** Great for coding—"mode snake" for Python, "mode camel" for JavaScript, "mode pascal" for type names.
+
 **Repetition** (add "times N" to any command, or use "repeat"):
 
 | Input                              | Effect                        |
