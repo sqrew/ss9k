@@ -20,6 +20,10 @@ Press a key, speak, release. Your words appear at cursor. Or say a command. No c
 - **Shift mode** - Text selection: "command shift right times five" selects 5 characters
 - **Hold/Release** - Hold keys for gaming/accessibility: "command hold w" runs forward
 - **Emoji** - 80+ emoji via voice: "emoji thumbs up" → 👍
+- **Case modes** - snake_case, camelCase, PascalCase, SCREAMING_SNAKE, and more
+- **Math mode** - Spoken math to symbols: "one plus one" → `1 + 1`
+- **Inserts** - Voice-triggered text snippets with placeholders: `{date}`, `{shell:cmd}`
+- **Wrappers** - Wrap text by voice: "wrap quotes hello" → `"hello"`
 - **Repetition** - "command backspace times five" or "command repeat three"
 - **Mishearing tolerance** - Built-in handling for common Whisper errors (caret/carrot, colon/colin, etc.)
 - **Fuzzy matching** - Custom commands match despite spacing/number variations
@@ -174,11 +178,75 @@ Supports: all letters (a-z), modifiers (shift, control/ctrl, alt, meta/super/win
 | `screaming` | SCREAMING_SNAKE | HELLO_WORLD |
 | `caps` | ALL CAPS | HELLO WORLD |
 | `lower` | lowercase | hello world |
+| `math` | spoken math → symbols | one plus one → 1 + 1 |
 | `off` | normal (default) | hello world |
 
 Mode persists until changed. Say "command mode snake", then dictate naturally—all text becomes snake_case. Say "command mode off" to return to normal.
 
 **Tip:** Great for coding—"mode snake" for Python, "mode camel" for JavaScript, "mode pascal" for type names.
+
+**Math Mode** converts spoken math to symbols:
+
+| Input | Output |
+|-------|--------|
+| `one plus one` | 1 + 1 |
+| `five times three` | 5 * 3 |
+| `x greater than y` | x > y |
+| `open paren a plus b close paren` | ( a + b ) |
+| `three point one four` | 3 . 1 4 |
+
+Supports: numbers 0-20, operators (+, -, *, /, =, %, ^), comparisons (>, <, >=, <=, !=, ==), parentheses/brackets/braces, decimals, and common homophones (to→2, for→4).
+
+**Inserts** (say "command insert" + name):
+
+Define text snippets in your config and insert them by voice:
+
+```toml
+[inserts]
+email = "you@example.com"
+sig = "Best regards,\nYour Name"
+header = "// Created: {date}\n// Author: Your Name"
+branch = "{shell:git branch --show-current}"
+```
+
+| Input | Output |
+|-------|--------|
+| `command insert email` | you@example.com |
+| `command insert header` | // Created: 2026-01-17\n// Author: Your Name |
+| `command insert branch` | main (or current branch) |
+
+**Placeholders:**
+- `{date}` → 2026-01-17
+- `{time}` → 13:52
+- `{datetime}` → 2026-01-17 13:52
+- `{timestamp}` → Unix timestamp
+- `{iso}` → ISO 8601 format
+- `{shell:command}` → output of any shell command
+- `\n` → newline, `\t` → tab
+
+The `{shell:...}` placeholder is powerful—pull in git info, environment variables, clipboard contents, API responses, anything shell can do.
+
+**Wrappers** (say "command wrap" + name + text):
+
+Define text wrappers in your config and wrap dictated text:
+
+```toml
+[wrappers]
+quotes = '"'
+parens = "(|)"
+fire = "🔥"
+div = "<div>|</div>"
+bold = "**|**"
+```
+
+| Input | Output |
+|-------|--------|
+| `command wrap quotes hello world` | "hello world" |
+| `command wrap parens check this` | (check this) |
+| `command wrap fire awesome` | 🔥awesome🔥 |
+| `command wrap div content here` | \<div\>content here\</div\> |
+
+If the wrapper value contains `|`, it splits into left/right. Otherwise, the value is used on both sides.
 
 **Repetition** (add "times N" to any command, or use "repeat"):
 
@@ -227,6 +295,19 @@ quiet = false                # suppress verbose output (set true once comfortabl
 [aliases]
 "taping" = "typing"          # fix consistent misrecognitions
 "come and" = "command"       # common Whisper mishearing
+
+[inserts]
+email = "you@example.com"
+sig = "Best regards,\nYour Name"
+header = "// Created: {date}\n// Author: {shell:git config user.name}"
+branch = "{shell:git branch --show-current}"
+
+[wrappers]
+quotes = '"'
+parens = "(|)"
+brackets = "[|]"
+fire = "🔥"
+div = "<div>|</div>"
 ```
 
 **Supported hotkeys:** F1-F12, ScrollLock, Pause, PrintScreen, Insert, Home, End, PageUp, PageDown, Num0-Num9
@@ -300,6 +381,7 @@ Built with:
 - [rdev](https://github.com/Narsil/rdev) - Global hotkey capture
 - [enigo](https://github.com/enigo-rs/enigo) - Keyboard simulation
 - [rubato](https://github.com/HEnquist/rubato) - Audio resampling
+- [chrono](https://github.com/chronotope/chrono) - Date/time for insert placeholders
 - [arc-swap](https://github.com/vorner/arc-swap) - Lock-free config hot-reload
 - [notify](https://github.com/notify-rs/notify) - File watching
 

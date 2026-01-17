@@ -24,3 +24,4 @@ whisper-rs = "0.14"   # Whisper inference (add vulkan/cuda/metal feature for GPU
 rubato = "0.15"       # Audio resampling (44.1kHz → 16kHz)
 arc-swap = "1.8.0"
 notify = "8.2.0"
+chrono = "0.4"        # Date/time for insert placeholders

@@ -412,6 +412,58 @@ pub fn execute_custom_command(cmd: &str) -> Result<()> {
     Ok(())
 }
 
+/// Expand placeholders in insert text
+/// {date} → 2026-01-17
+/// {time} → 13:52
+/// {datetime} → 2026-01-17 13:52
+/// {timestamp} → Unix timestamp
+/// {iso} → ISO 8601 format
+/// {shell:command} → output of shell command
+fn expand_placeholders(text: &str) -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now = chrono::Local::now();
+    let mut result = text.to_string();
+
+    result = result.replace("{date}", &now.format("%Y-%m-%d").to_string());
+    result = result.replace("{time}", &now.format("%H:%M").to_string());
+    result = result.replace("{datetime}", &now.format("%Y-%m-%d %H:%M").to_string());
+    result = result.replace("{iso}", &now.format("%Y-%m-%dT%H:%M:%S%:z").to_string());
+
+    if result.contains("{timestamp}") {
+        if let Ok(duration) = SystemTime::now().duration_since(UNIX_EPOCH) {
+            result = result.replace("{timestamp}", &duration.as_secs().to_string());
+        }
+    }
+
+    // Expand {shell:command} placeholders
+    while let Some(start) = result.find("{shell:") {
+        if let Some(end) = result[start..].find('}') {
+            let end = start + end;
+            let cmd = &result[start + 7..end]; // skip "{shell:"
+            let output = match std::process::Command::new("sh")
+                .args(["-c", cmd])
+                .output()
+            {
+                Ok(out) => String::from_utf8_lossy(&out.stdout).trim().to_string(),
+                Err(e) => {
+                    eprintln!("[SS9K] ⚠️ Shell command failed: {}", e);
+                    String::new()
+                }
+            };
+            result = format!("{}{}{}", &result[..start], output, &result[end + 1..]);
+        } else {
+            break; // malformed placeholder, stop
+        }
+    }
+
+    // Handle escaped newlines
+    result = result.replace("\\n", "\n");
+    result = result.replace("\\t", "\t");
+
+    result
+}
+
 /// Execute a voice command or type the text
 /// Uses a configurable leader word (default "command") to trigger commands
 /// Everything goes through the leader: "command enter", "command emoji smile", "command punctuation comma"
@@ -422,6 +474,8 @@ pub fn execute_command(
     leader: &str,
     custom_commands: &HashMap<String, String>,
     aliases: &HashMap<String, String>,
+    inserts: &HashMap<String, String>,
+    wrappers: &HashMap<String, String>,
 ) -> Result<bool> {
     let aliased = normalize_aliases(text, aliases);
 
@@ -447,6 +501,48 @@ pub fn execute_command(
         // Check for punctuation subcommand
         if let Some(punct) = cmd.strip_prefix("punctuation ").or_else(|| cmd.strip_prefix("punk ")) {
             return execute_punctuation(enigo, punct.trim());
+        }
+
+        // Check for insert subcommand
+        if let Some(insert_name) = cmd.strip_prefix("insert ") {
+            let name = insert_name.trim();
+            if let Some(template) = inserts.get(name) {
+                let expanded = expand_placeholders(template);
+                enigo.text(&expanded)?;
+                println!("[SS9K] 📋 Inserted '{}': {}", name, expanded.chars().take(50).collect::<String>());
+                return Ok(true);
+            } else {
+                eprintln!("[SS9K] ⚠️ Unknown insert: '{}'", name);
+                eprintln!("[SS9K] Available: {:?}", inserts.keys().collect::<Vec<_>>());
+                return Ok(false);
+            }
+        }
+
+        // Check for wrap subcommand: "wrap <name> <text>"
+        if let Some(wrap_rest) = cmd.strip_prefix("wrap ") {
+            let parts: Vec<&str> = wrap_rest.splitn(2, ' ').collect();
+            if parts.is_empty() {
+                eprintln!("[SS9K] ⚠️ Wrap requires a name and text: 'command wrap quotes hello'");
+                return Ok(false);
+            }
+            let wrapper_name = parts[0].trim();
+            let wrap_text = if parts.len() > 1 { parts[1].trim() } else { "" };
+
+            if let Some(wrapper) = wrappers.get(wrapper_name) {
+                let (left, right) = if let Some(idx) = wrapper.find('|') {
+                    (&wrapper[..idx], &wrapper[idx + 1..])
+                } else {
+                    (wrapper.as_str(), wrapper.as_str())
+                };
+                let wrapped = format!("{}{}{}", left, wrap_text, right);
+                enigo.text(&wrapped)?;
+                println!("[SS9K] 🎁 Wrapped '{}': {}", wrapper_name, wrapped);
+                return Ok(true);
+            } else {
+                eprintln!("[SS9K] ⚠️ Unknown wrapper: '{}'", wrapper_name);
+                eprintln!("[SS9K] Available: {:?}", wrappers.keys().collect::<Vec<_>>());
+                return Ok(false);
+            }
         }
 
         // Otherwise it's a builtin command
@@ -1004,6 +1100,8 @@ pub fn print_help() {
     println!("║   [leader] release [X] - release held key(s)                 ║");
     println!("║   [leader] emoji [X]   - insert emoji (smile, fire, etc.)    ║");
     println!("║   [leader] punctuation [X] - insert symbol (comma, arrow)    ║");
+    println!("║   [leader] insert [X]  - insert snippet from config          ║");
+    println!("║   [leader] wrap [X] [text] - wrap text (quotes, parens, etc) ║");
     println!("║   [leader] mode [X]    - modes: snake, camel, pascal, kebab, ║");
     println!("║                          screaming, caps, lower, math, off   ║");
     println!("╠══════════════════════════════════════════════════════════════╣");

@@ -45,6 +45,10 @@ pub struct Config {
     #[serde(default)]
     pub aliases: HashMap<String, String>,
     #[serde(default)]
+    pub inserts: HashMap<String, String>,
+    #[serde(default)]
+    pub wrappers: HashMap<String, String>,
+    #[serde(default)]
     pub quiet: bool,
 }
 
@@ -62,6 +66,8 @@ impl Default for Config {
             key_repeat_ms: 50,
             commands: HashMap::new(),
             aliases: HashMap::new(),
+            inserts: HashMap::new(),
+            wrappers: HashMap::new(),
             quiet: false,
         }
     }
@@ -180,6 +186,12 @@ fn main() -> Result<()> {
     }
     if !config.aliases.is_empty() {
         println!("[SS9K] Aliases: {} loaded", config.aliases.len());
+    }
+    if !config.inserts.is_empty() {
+        println!("[SS9K] Inserts: {} loaded", config.inserts.len());
+    }
+    if !config.wrappers.is_empty() {
+        println!("[SS9K] Wrappers: {} loaded", config.wrappers.len());
     }
 
     // Check if model exists, download if not
@@ -320,7 +332,7 @@ fn main() -> Result<()> {
 
                                     match Enigo::new(&Settings::default()) {
                                         Ok(mut enigo) => {
-                                            if let Err(e) = execute_command(&mut enigo, &text, &cfg.leader, &cfg.commands, &cfg.aliases) {
+                                            if let Err(e) = execute_command(&mut enigo, &text, &cfg.leader, &cfg.commands, &cfg.aliases, &cfg.inserts, &cfg.wrappers) {
                                                 eprintln!("[SS9K] ❌ Command/Type error: {}", e);
                                             }
                                         }

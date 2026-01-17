@@ -63,3 +63,44 @@ quiet = false
 # "fire fox" = "firefox"
 # "libre wolf" = "librewolf"
 # "kit tea" = "kitty"
+
+# Text snippets for quick insertion
+# Say "command insert <name>" to type the snippet
+# Supports placeholders:
+#   {date}      → 2026-01-17
+#   {time}      → 13:52
+#   {datetime}  → 2026-01-17 13:52
+#   {timestamp} → Unix timestamp
+#   {iso}       → ISO 8601 format
+#   {shell:cmd} → output of shell command
+# Also supports \n (newline) and \t (tab)
+[inserts]
+# email = "you@example.com"
+# sig = "Best regards,\nYour Name"
+# license = "MIT License (c) {date} Your Name"
+# header = "// Created: {date}\n// Author: Your Name"
+# todo = "TODO({date}): "
+# gituser = "{shell:git config user.name}"
+# gitemail = "{shell:git config user.email}"
+# branch = "{shell:git branch --show-current}"
+# pwd = "{shell:pwd}"
+# hostname = "{shell:hostname}"
+
+# Text wrappers for quick wrapping
+# Say "command wrap <name> <text>" to wrap text
+# If the value contains |, it splits into left|right
+# Otherwise the value is used on both sides
+[wrappers]
+# quotes = '"'
+# single = "'"
+# parens = "(|)"
+# brackets = "[|]"
+# braces = "{|}"
+# backticks = "`"
+# code = "`"
+# bold = "**|**"
+# italic = "*|*"
+# fire = "🔥"
+# stars = "✨|✨"
+# div = "<div>|</div>"
+# span = "<span>|</span>"
