@@ -64,6 +64,7 @@ quiet = false
 # "libre wolf" = "librewolf"
 # "kit tea" = "kitty"
 
+
 # Text snippets for quick insertion
 # Say "command insert <name>" to type the snippet
 # Supports placeholders:
