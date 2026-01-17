@@ -356,6 +356,35 @@ cargo build --release --features metal   # macOS
 
 - **Wayland**: Global hotkeys don't work (Wayland security model). Use X11.
 
+## Comparison with Alternatives
+
+There are several voice control tools out there. Here's how SS9K compares:
+
+| Feature              | SS9K            | Talon        | Dragon       | Dictara     | Voxtype        | Nerd Dictation |
+|----------------------|-----------------|--------------|--------------|-------------|----------------|----------------|
+| **Platforms**        | Linux, Windows  | All          | Windows, Mac | All         | Linux          | Linux          |
+| **Price**            | Free            | Freemium     | $200-500+    | Free        | Free           | Free           |
+| **Speech Engine**    | Whisper.cpp     | Own/Whisper  | Proprietary  | Whisper     | Whisper.cpp    | VOSK           |
+| **Fully Local**      | ✅              | ✅           | ✅           | ⚠️ Optional  | ✅             | ✅             |
+| **Voice Commands**   | ✅ Full         | ✅ Scripting | ⚠️ Basic      | ❌          | ⚠️ Punctuation  | ❌             |
+| **Case Modes**       | ✅ 8 modes      | ✅           | ❌           | ❌          | ❌             | ❌             |
+| **Math Mode**        | ✅              | ❌           | ❌           | ❌          | ❌             | ❌             |
+| **Insert Snippets**  | ✅ + `{shell:}` | ✅ Python    | ❌           | ❌          | ❌             | ❌             |
+| **Text Wrappers**    | ✅              | ✅           | ❌           | ❌          | ❌             | ❌             |
+| **Custom Commands**  | ✅ TOML         | ✅ .talon    | ⚠️            | ❌          | ❌             | ❌             |
+| **GPU Acceleration** | ✅              | ✅           | ❌           | ✅          | ✅             | ❌             |
+| **Learning Curve**   | Low             | High         | Medium       | Low         | Low            | Low            |
+| **Setup Complexity** | Low             | High         | Medium       | Low         | Medium         | Low            |
+
+**TL;DR:**
+- **Want power-user features with low learning curve?** → **SS9K** (you're here)
+- **Want maximum power and don't mind learning?** → [Talon](https://talonvoice.com/)
+- **Need professional/medical dictation on Windows?** → [Dragon](https://www.nuance.com/dragon.html)
+- **Want minimal Linux-only dictation?** → [Voxtype](https://github.com/peteonrails/voxtype) or [Nerd Dictation](https://github.com/ideasman42/nerd-dictation)
+- **Want mac dictation with a GUI?** → [Dictara](https://github.com/vitalii-zinchenko/dictara)
+
+SS9K sits in the sweet spot: **Talon-level features without the scripting complexity.** Everything is configured in a simple TOML file, yet you get case modes, math mode, shell integration, custom commands, and more.
+
 ## Why?
 
 For people who:
@@ -386,5 +415,3 @@ Built with:
 - [notify](https://github.com/notify-rs/notify) - File watching
 
 Built by sqrew + Claude. The screech is real. 🦀
-
-A mac only alternative: https://github.com/vitalii-zinchenko/dictara
