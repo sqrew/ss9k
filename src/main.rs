@@ -20,7 +20,7 @@ use std::time::Duration;
 use whisper_rs::{WhisperContext, WhisperContextParameters};
 
 use audio::{build_stream, is_microphone, resample_audio, transcribe, AudioBuffer, CALLBACK_COUNT, WHISPER_SAMPLE_RATE};
-use commands::{execute_command, print_help};
+use commands::{execute_command, print_help, set_key_repeat_ms};
 use model::{download_model, get_model_install_path, get_model_path};
 
 // Recording state
@@ -39,6 +39,7 @@ pub struct Config {
     pub hotkey_mode: String,
     pub toggle_timeout_secs: u64,
     pub leader: String,
+    pub key_repeat_ms: u64,
     #[serde(default)]
     pub commands: HashMap<String, String>,
     #[serde(default)]
@@ -58,6 +59,7 @@ impl Default for Config {
             hotkey_mode: "hold".to_string(),
             toggle_timeout_secs: 0,
             leader: "command".to_string(),
+            key_repeat_ms: 50,
             commands: HashMap::new(),
             aliases: HashMap::new(),
             quiet: false,
@@ -313,6 +315,9 @@ fn main() -> Result<()> {
                                     println!("[SS9K] 📝 Transcription: {}", text);
                                 }
                                 if !text.is_empty() {
+                                    // Update key repeat rate from config
+                                    set_key_repeat_ms(cfg.key_repeat_ms);
+
                                     match Enigo::new(&Settings::default()) {
                                         Ok(mut enigo) => {
                                             if let Err(e) = execute_command(&mut enigo, &text, &cfg.leader, &cfg.commands, &cfg.aliases) {

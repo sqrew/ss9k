@@ -36,6 +36,11 @@ toggle_timeout_secs = 0
 # Change to whatever feels natural: "voice", "computer", "hey", etc.
 leader = "command"
 
+# Key repeat rate for hold mode (milliseconds between key presses)
+# Lower = faster repeat, higher = slower
+# Used when you say "command hold w" to spam a key
+key_repeat_ms = 50
+
 # Suppress verbose output (processing, resampling, transcription logs)
 # Errors still print. Set true once you're comfortable with the tool.
 quiet = false

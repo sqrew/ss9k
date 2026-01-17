@@ -9,18 +9,41 @@
 //! - Custom shell command execution
 
 use anyhow::Result;
-use enigo::{Enigo, Key as EnigoKey, Keyboard};
-use std::collections::HashMap;
+use enigo::{Enigo, Key as EnigoKey, Keyboard, Settings};
+use std::collections::{HashMap, HashSet};
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Duration;
 
 use crate::lookups::{execute_emoji, execute_punctuation, parse_key_name, word_to_char};
+
+// Wrapper for EnigoKey to implement Hash/Eq (using discriminant)
+#[derive(Clone, Debug)]
+pub(crate) struct HeldKey(EnigoKey);
+
+impl PartialEq for HeldKey {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(&self.0) == std::mem::discriminant(&other.0)
+    }
+}
+
+impl Eq for HeldKey {}
+
+impl Hash for HeldKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(&self.0).hash(state);
+    }
+}
 
 // Statics for command state
 pub static LAST_COMMAND: std::sync::LazyLock<Mutex<Option<String>>> =
     std::sync::LazyLock::new(|| Mutex::new(None));
-pub static HELD_KEYS: std::sync::LazyLock<Mutex<Vec<EnigoKey>>> =
-    std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
+pub static HELD_KEYS: std::sync::LazyLock<Mutex<HashSet<HeldKey>>> =
+    std::sync::LazyLock::new(|| Mutex::new(HashSet::new()));
+pub static HOLD_THREAD_RUNNING: AtomicBool = AtomicBool::new(false);
+pub static KEY_REPEAT_MS: AtomicU64 = AtomicU64::new(50);
 
 /// Normalize text by applying aliases (e.g., "e max" -> "emacs")
 pub fn normalize_aliases(text: &str, aliases: &HashMap<String, String>) -> String {
@@ -575,8 +598,58 @@ pub fn execute_spell_mode(enigo: &mut Enigo, input: &str) -> Result<bool> {
     Ok(true)
 }
 
-/// Hold a key down (add to held keys list)
-pub fn execute_hold(enigo: &mut Enigo, key_name: &str) -> Result<bool> {
+/// Set the key repeat rate (called from main before executing commands)
+pub fn set_key_repeat_ms(ms: u64) {
+    KEY_REPEAT_MS.store(ms, Ordering::SeqCst);
+}
+
+/// Spawn the hold thread if not already running
+fn spawn_hold_thread() {
+    if HOLD_THREAD_RUNNING.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+        std::thread::spawn(|| {
+            println!("[SS9K] 🔄 Hold thread started");
+
+            // Create our own Enigo instance for this thread
+            let mut enigo = match Enigo::new(&Settings::default()) {
+                Ok(e) => e,
+                Err(e) => {
+                    eprintln!("[SS9K] ❌ Hold thread failed to create Enigo: {}", e);
+                    HOLD_THREAD_RUNNING.store(false, Ordering::SeqCst);
+                    return;
+                }
+            };
+
+            loop {
+                let repeat_ms = KEY_REPEAT_MS.load(Ordering::SeqCst);
+
+                // Get snapshot of held keys
+                let keys: Vec<EnigoKey> = if let Ok(held) = HELD_KEYS.lock() {
+                    if held.is_empty() {
+                        break; // No more keys, exit thread
+                    }
+                    held.iter().map(|hk| hk.0.clone()).collect()
+                } else {
+                    break;
+                };
+
+                // Click all held keys together
+                for key in &keys {
+                    if let Err(e) = enigo.key(key.clone(), enigo::Direction::Click) {
+                        eprintln!("[SS9K] ⚠️ Hold thread key error: {}", e);
+                    }
+                }
+
+                std::thread::sleep(Duration::from_millis(repeat_ms));
+            }
+
+            HOLD_THREAD_RUNNING.store(false, Ordering::SeqCst);
+            println!("[SS9K] 🔄 Hold thread stopped");
+        });
+    }
+}
+
+/// Hold a key down (add to held keys, spawn spam thread)
+pub fn execute_hold(_enigo: &mut Enigo, key_name: &str) -> Result<bool> {
     let key = match parse_key_name(key_name) {
         Some(k) => k,
         None => {
@@ -585,20 +658,20 @@ pub fn execute_hold(enigo: &mut Enigo, key_name: &str) -> Result<bool> {
         }
     };
 
-    enigo.key(key.clone(), enigo::Direction::Press)?;
-
+    // Add to held keys set
     if let Ok(mut held) = HELD_KEYS.lock() {
-        if !held.iter().any(|k| std::mem::discriminant(k) == std::mem::discriminant(&key)) {
-            held.push(key.clone());
-        }
+        held.insert(HeldKey(key));
     }
+
+    // Spawn hold thread if not running
+    spawn_hold_thread();
 
     println!("[SS9K] 🔒 Holding: {}", key_name);
     Ok(true)
 }
 
-/// Release a specific held key
-pub fn execute_release(enigo: &mut Enigo, key_name: &str) -> Result<bool> {
+/// Release a specific held key (remove from set, thread will stop clicking it)
+pub fn execute_release(_enigo: &mut Enigo, key_name: &str) -> Result<bool> {
     let key = match parse_key_name(key_name) {
         Some(k) => k,
         None => {
@@ -607,36 +680,30 @@ pub fn execute_release(enigo: &mut Enigo, key_name: &str) -> Result<bool> {
         }
     };
 
-    enigo.key(key.clone(), enigo::Direction::Release)?;
-
     if let Ok(mut held) = HELD_KEYS.lock() {
-        held.retain(|k| std::mem::discriminant(k) != std::mem::discriminant(&key));
+        held.remove(&HeldKey(key));
     }
 
     println!("[SS9K] 🔓 Released: {}", key_name);
     Ok(true)
 }
 
-/// Release all held keys
-pub fn execute_release_all(enigo: &mut Enigo) -> Result<bool> {
-    let keys_to_release = if let Ok(mut held) = HELD_KEYS.lock() {
-        let keys = held.clone();
+/// Release all held keys (clear set, thread will exit)
+pub fn execute_release_all(_enigo: &mut Enigo) -> Result<bool> {
+    let count = if let Ok(mut held) = HELD_KEYS.lock() {
+        let c = held.len();
         held.clear();
-        keys
+        c
     } else {
-        Vec::new()
+        0
     };
 
-    if keys_to_release.is_empty() {
+    if count == 0 {
         println!("[SS9K] 🔓 No keys held");
         return Ok(true);
     }
 
-    for key in &keys_to_release {
-        enigo.key(key.clone(), enigo::Direction::Release)?;
-    }
-
-    println!("[SS9K] 🔓 Released {} key(s)", keys_to_release.len());
+    println!("[SS9K] 🔓 Released {} key(s)", count);
     Ok(true)
 }
 

@@ -146,7 +146,9 @@ Supports: left, right, up, down, word left, word right, home, end, page up, page
 
 Supports: all letters (a-z), modifiers (shift, control/ctrl, alt, meta/super/win), arrows (up, down, left, right), and common keys (space, enter, tab, escape, backspace).
 
-**Tip:** Use hold for games ("command hold w" to run), accessibility (hold shift while selecting), or any situation where you need a key pressed continuously.
+**How it works:** Hold mode rapidly presses the key (configurable via `key_repeat_ms`). All held keys press together, so "hold shift" + "hold w" works for sprint+move.
+
+**Tip:** Use hold for games ("command hold w" to run), accessibility, or any situation where you need a key pressed continuously.
 
 **Emoji** (say "command emoji" + name):
 
@@ -196,6 +198,7 @@ hotkey = "F12"               # see supported hotkeys below
 hotkey_mode = "hold"         # hold (release to stop) or toggle (press again to stop)
 toggle_timeout_secs = 0      # auto-stop after N seconds in toggle mode (0 = no timeout)
 leader = "command"           # leader word for commands (or "voice", "computer", etc.)
+key_repeat_ms = 50           # key repeat rate for hold mode (ms between presses)
 quiet = false                # suppress verbose output (set true once comfortable)
 
 [commands]
