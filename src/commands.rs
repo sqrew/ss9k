@@ -49,6 +49,7 @@ pub enum CaseMode {
     Screaming,  // HELLO_WORLD
     Caps,       // HELLO WORLD
     Lower,      // hello world
+    Math,       // one plus one -> 1 + 1
 }
 
 // Statics for command state
@@ -152,7 +153,156 @@ pub fn apply_case_mode(text: &str) -> String {
         CaseMode::Screaming => words.iter().map(|w| w.to_uppercase()).collect::<Vec<_>>().join("_"),
         CaseMode::Caps => words.iter().map(|w| w.to_uppercase()).collect::<Vec<_>>().join(" "),
         CaseMode::Lower => words.iter().map(|w| w.to_lowercase()).collect::<Vec<_>>().join(" "),
+        CaseMode::Math => apply_math_mode(text),
     }
+}
+
+/// Strip punctuation from a word for matching (keeps the word itself clean)
+fn strip_punct(word: &str) -> String {
+    word.chars()
+        .filter(|c| c.is_alphanumeric())
+        .collect::<String>()
+        .to_lowercase()
+}
+
+/// Apply math mode transformation: convert spoken math to symbols
+/// "one plus one" → "1 + 1"
+/// "five times three" → "5 * 3"
+/// "x greater than y" → "x > y"
+pub fn apply_math_mode(text: &str) -> String {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() {
+        return text.to_string();
+    }
+
+    // Pre-strip punctuation from all words for matching
+    let clean: Vec<String> = words.iter().map(|w| strip_punct(w)).collect();
+
+    let mut result = Vec::new();
+    let mut i = 0;
+
+    while i < words.len() {
+        // Check for multi-word phrases first (longest match)
+
+        // Five-word phrases
+        if i + 4 < clean.len() {
+            let five = format!("{} {} {} {} {}",
+                clean[i], clean[i+1], clean[i+2], clean[i+3], clean[i+4]
+            );
+            if let Some(sym) = match five.as_str() {
+                "greater than or equal to" => Some(">="),
+                "less than or equal to" => Some("<="),
+                _ => None,
+            } {
+                result.push(sym.to_string());
+                i += 5;
+                continue;
+            }
+        }
+
+        // Three-word phrases
+        if i + 2 < clean.len() {
+            let three = format!("{} {} {}", clean[i], clean[i+1], clean[i+2]);
+            if let Some(sym) = match three.as_str() {
+                "divided by" | "over" => None, // handled in two-word
+                "is equal to" => Some("="),
+                "not equal to" | "not equals to" => Some("!="),
+                "to the power" => Some("^"), // "to the power of" would be 4 words
+                _ => None,
+            } {
+                result.push(sym.to_string());
+                i += 3;
+                continue;
+            }
+        }
+
+        // Two-word phrases
+        if i + 1 < clean.len() {
+            let two = format!("{} {}", clean[i], clean[i+1]);
+            if let Some(sym) = match two.as_str() {
+                "divided by" | "divided over" => Some("/"),
+                "multiplied by" => Some("*"),
+                "greater than" => Some(">"),
+                "less than" => Some("<"),
+                "equal to" | "equals to" => Some("="),
+                "not equal" | "not equals" => Some("!="),
+                "double equals" | "double equal" | "triple equals" | "strict equals" => Some("=="),
+                "open paren" | "open parenthesis" | "left paren" | "left parenthesis" => Some("("),
+                "close paren" | "close parenthesis" | "right paren" | "right parenthesis" => Some(")"),
+                "open bracket" | "left bracket" => Some("["),
+                "close bracket" | "right bracket" => Some("]"),
+                "open brace" | "left brace" => Some("{"),
+                "close brace" | "right brace" => Some("}"),
+                "at least" => Some(">="),
+                "at most" => Some("<="),
+                _ => None,
+            } {
+                result.push(sym.to_string());
+                i += 2;
+                continue;
+            }
+        }
+
+        // Single words (use pre-cleaned version)
+        let word = &clean[i];
+        let converted = match word.as_str() {
+            // Numbers 0-20
+            "zero" => "0",
+            "one" => "1",
+            "two" | "to" | "too" => "2",
+            "three" => "3",
+            "four" | "for" => "4",
+            "five" => "5",
+            "six" => "6",
+            "seven" => "7",
+            "eight" => "8",
+            "nine" => "9",
+            "ten" => "10",
+            "eleven" => "11",
+            "twelve" => "12",
+            "thirteen" => "13",
+            "fourteen" => "14",
+            "fifteen" => "15",
+            "sixteen" => "16",
+            "seventeen" => "17",
+            "eighteen" => "18",
+            "nineteen" => "19",
+            "twenty" => "20",
+
+            // Operators
+            "plus" | "add" => "+",
+            "minus" | "subtract" => "-",
+            "times" | "multiplied" | "multiply" => "*",
+            "divided" | "divide" | "over" => "/",
+            "equals" | "equal" => "=",
+            "modulo" | "mod" => "%",
+            "caret" | "power" | "exponent" => "^",
+
+            // Comparisons (single word forms)
+            "greater" => ">",  // "greater" alone = >
+            "less" => "<",     // "less" alone = <
+
+            // Punctuation/grouping
+            "point" | "dot" | "decimal" => ".",
+            "comma" => ",",
+            "percent" => "%",
+            "paren" | "parenthesis" => "(", // ambiguous, default open
+            "bracket" => "[",
+            "brace" => "{",
+
+            // Math constants (just type them)
+            "pi" => "π",
+            "infinity" => "∞",
+
+            // Pass through anything else (variables like x, y, z)
+            _ => &word,
+        };
+
+        result.push(converted.to_string());
+        i += 1;
+    }
+
+    result.join(" ")
 }
 
 /// Set the current case mode
@@ -178,6 +328,7 @@ pub fn parse_mode_name(name: &str) -> Option<CaseMode> {
         "screaming" | "scream" | "yelling" | "yell" => Some(CaseMode::Screaming),
         "caps" | "upper" | "uppercase" | "capital" | "capitals" => Some(CaseMode::Caps),
         "lower" | "lowercase" => Some(CaseMode::Lower),
+        "math" | "maths" | "numeral" | "numerals" | "numbers" => Some(CaseMode::Math),
         _ => None,
     }
 }
@@ -196,13 +347,14 @@ pub fn execute_mode(mode_name: &str) -> Result<bool> {
                 CaseMode::Screaming => "SCREAMING_SNAKE_CASE",
                 CaseMode::Caps => "CAPS LOCK",
                 CaseMode::Lower => "lowercase",
+                CaseMode::Math => "math (one plus one → 1 + 1)",
             };
             println!("[SS9K] 🔤 Mode: {}", mode_str);
             Ok(true)
         }
         None => {
             eprintln!("[SS9K] ⚠️ Unknown mode: {}", mode_name);
-            eprintln!("[SS9K] Available: off, snake, camel, pascal, kebab, screaming, caps, lower");
+            eprintln!("[SS9K] Available: off, snake, camel, pascal, kebab, screaming, caps, lower, math");
             Ok(false)
         }
     }
@@ -852,8 +1004,8 @@ pub fn print_help() {
     println!("║   [leader] release [X] - release held key(s)                 ║");
     println!("║   [leader] emoji [X]   - insert emoji (smile, fire, etc.)    ║");
     println!("║   [leader] punctuation [X] - insert symbol (comma, arrow)    ║");
-    println!("║   [leader] mode [X]    - case mode: snake, camel, pascal,    ║");
-    println!("║                          kebab, screaming, caps, lower, off  ║");
+    println!("║   [leader] mode [X]    - modes: snake, camel, pascal, kebab, ║");
+    println!("║                          screaming, caps, lower, math, off   ║");
     println!("╠══════════════════════════════════════════════════════════════╣");
     println!("║ CONFIG:     ~/.config/ss9k/config.toml                       ║");
     println!("║ DOCS:       https://github.com/sqrew/ss9k                    ║");

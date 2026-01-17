@@ -304,3 +304,5 @@ Built with:
 - [notify](https://github.com/notify-rs/notify) - File watching
 
 Built by sqrew + Claude. The screech is real. 🦀
+
+A mac only alternative: https://github.com/vitalii-zinchenko/dictara
