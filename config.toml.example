@@ -31,6 +31,11 @@ hotkey_mode = "hold"
 # Auto-stop timeout for toggle mode (0 = no timeout)
 toggle_timeout_secs = 0
 
+# Leader word for voice commands
+# All commands require this prefix: "command enter", "command emoji smile", etc.
+# Change to whatever feels natural: "voice", "computer", "hey", etc.
+leader = "command"
+
 # Suppress verbose output (processing, resampling, transcription logs)
 # Errors still print. Set true once you're comfortable with the tool.
 quiet = false
