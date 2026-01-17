@@ -76,18 +76,18 @@ Yeah, it's a lot. Linux is easier. But it works!
 
 ### Voice Commands
 
-SS9K uses **leader words** to distinguish commands from dictation:
+SS9K uses a **leader word** (default: `command`) to distinguish commands from dictation:
 
 - `"command enter"` → presses Enter key
 - `"enter"` → types the word "enter"
-- `"punctuation period"` → types `.` (or `"punk period"`)
+- `"command punctuation period"` → types `.` (or `"command punk period"`)
 - `"command spell alpha at bravo"` → types `a@b`
-- `"emoji fire"` → types 🔥
+- `"command emoji fire"` → types 🔥
 
-**Leader words:**
-- `command` - Built-in commands, subcommands (shift, spell, hold, release)
-- `punctuation` / `punk` - Insert symbols
-- `emoji` - Insert emoji
+**Everything goes through the leader word.** Configure it in your config:
+```toml
+leader = "voice"  # or "computer", "hey", whatever feels natural
+```
 
 **Commands** (say "command" + any of these):
 
@@ -98,7 +98,7 @@ SS9K uses **leader words** to distinguish commands from dictation:
 | **Media**      | play, pause, next, skip, previous, volume up, volume down, mute                      |
 | **Utility**    | help (show commands), config (open config), repeat, repeat [N]                       |
 
-**Punctuation** (say "punctuation" + any of these):
+**Punctuation** (say "command punctuation" + any of these, or "command punk"):
 
 | Category        | Options                                                                              |
 |-----------------|--------------------------------------------------------------------------------------|
@@ -148,18 +148,18 @@ Supports: all letters (a-z), modifiers (shift, control/ctrl, alt, meta/super/win
 
 **Tip:** Use hold for games ("command hold w" to run), accessibility (hold shift while selecting), or any situation where you need a key pressed continuously.
 
-**Emoji** (say "emoji" + name):
+**Emoji** (say "command emoji" + name):
 
-| Input                | Output |
-|----------------------|--------|
-| `emoji smile`        | 😊     |
-| `emoji thumbs up`    | 👍     |
-| `emoji fire`         | 🔥     |
-| `emoji blue heart`   | 💙     |
-| `emoji crab`         | 🦀     |
-| `emoji poop`         | 💩     |
+| Input                        | Output |
+|------------------------------|--------|
+| `command emoji smile`        | 😊     |
+| `command emoji thumbs up`    | 👍     |
+| `command emoji fire`         | 🔥     |
+| `command emoji blue heart`   | 💙     |
+| `command emoji crab`         | 🦀     |
+| `command emoji poop`         | 💩     |
 
-80+ emoji available: faces, gestures, hearts (all colors), animals, objects, symbols. Say "emoji rust" for 🦀.
+80+ emoji available: faces, gestures, hearts (all colors), animals, objects, symbols. Say "command emoji rust" for 🦀.
 
 **Repetition** (add "times N" to any command, or use "repeat"):
 
@@ -181,7 +181,7 @@ Works with number words (one-twenty) or digits. Handles common mishearings like 
 
 **Custom commands** (from config) work without a leader word.
 
-**Tip:** Use aliases to shorten leaders: `"cmd" = "command"` → say "cmd enter"
+**Tip:** Use aliases to shorten the leader: `"cmd" = "command"` → say "cmd enter"
 
 ### Configuration
 
@@ -195,6 +195,7 @@ device = ""                  # audio device (empty = auto-detect)
 hotkey = "F12"               # see supported hotkeys below
 hotkey_mode = "hold"         # hold (release to stop) or toggle (press again to stop)
 toggle_timeout_secs = 0      # auto-stop after N seconds in toggle mode (0 = no timeout)
+leader = "command"           # leader word for commands (or "voice", "computer", etc.)
 quiet = false                # suppress verbose output (set true once comfortable)
 
 [commands]
