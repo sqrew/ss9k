@@ -297,7 +297,10 @@ fn main() -> Result<()> {
     };
 
     stream.play()?;
-    println!("[SS9K] Stream playing. Waiting for F12...");
+    println!(
+        "[SS9K] Stream playing. Waiting for [{}]...",
+        &config.load().hotkey
+    );
 
     let (audio_tx, audio_rx) = mpsc::channel::<Vec<f32>>();
 
