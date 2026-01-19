@@ -41,15 +41,18 @@ impl Hash for HeldKey {
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum CaseMode {
     #[default]
-    Off,        // passthrough
-    Snake,      // hello_world
-    Camel,      // helloWorld
-    Pascal,     // HelloWorld
-    Kebab,      // hello-world
-    Screaming,  // HELLO_WORLD
-    Caps,       // HELLO WORLD
-    Lower,      // hello world
-    Math,       // one plus one -> 1 + 1
+    Off,         // passthrough
+    Snake,       // hello_world
+    Camel,       // helloWorld
+    Pascal,      // HelloWorld
+    Kebab,       // hello-world
+    Screaming,   // HELLO_WORLD
+    Caps,        // HELLO WORLD
+    Lower,       // hello world
+    Math,        // one plus one -> 1 + 1
+    Code,        // open paren x close paren -> (x)
+    Alternating, // aLtErNaTiNg CaPs
+    Swearing,    // fuck -> @#$%!
 }
 
 // Statics for command state
@@ -154,6 +157,9 @@ pub fn apply_case_mode(text: &str) -> String {
         CaseMode::Caps => words.iter().map(|w| w.to_uppercase()).collect::<Vec<_>>().join(" "),
         CaseMode::Lower => words.iter().map(|w| w.to_lowercase()).collect::<Vec<_>>().join(" "),
         CaseMode::Math => apply_math_mode(text),
+        CaseMode::Code => apply_code_mode(text),
+        CaseMode::Alternating => apply_alternating_mode(text),
+        CaseMode::Swearing => apply_swearing_mode(text),
     }
 }
 
@@ -305,6 +311,177 @@ pub fn apply_math_mode(text: &str) -> String {
     result.join(" ")
 }
 
+/// Apply code mode transformation: convert symbol names to tight symbols for coding
+/// "function open paren x close paren" → "function(x)"
+/// "if x double equals y open brace" → "if x == y {"
+pub fn apply_code_mode(text: &str) -> String {
+    let words: Vec<&str> = text.split_whitespace().collect();
+    if words.is_empty() {
+        return text.to_string();
+    }
+
+    let clean: Vec<String> = words.iter().map(|w| strip_punct(w)).collect();
+    let mut result = Vec::new();
+    let mut i = 0;
+
+    while i < words.len() {
+        // Check for two-word symbol phrases first
+        if i + 1 < clean.len() {
+            let two = format!("{} {}", clean[i], clean[i+1]);
+            if let Some(sym) = match two.as_str() {
+                // Parentheses
+                "open paren" | "open parenthesis" | "left paren" | "left parenthesis" => Some("("),
+                "close paren" | "close parenthesis" | "right paren" | "right parenthesis" => Some(")"),
+                // Brackets
+                "open bracket" | "left bracket" => Some("["),
+                "close bracket" | "right bracket" => Some("]"),
+                // Braces
+                "open brace" | "left brace" => Some("{"),
+                "close brace" | "right brace" => Some("}"),
+                // Angle brackets
+                "open angle" | "left angle" | "less than" => Some("<"),
+                "close angle" | "right angle" | "greater than" => Some(">"),
+                // Double symbols
+                "double equals" | "equals equals" | "double equal" => Some("=="),
+                "not equals" | "not equal" | "bang equals" => Some("!="),
+                "double ampersand" | "and and" | "ampersand ampersand" => Some("&&"),
+                "double pipe" | "or or" | "pipe pipe" => Some("||"),
+                "double colon" | "colon colon" => Some("::"),
+                "double slash" | "slash slash" => Some("//"),
+                "fat arrow" | "arrow fat" | "equals arrow" => Some("=>"),
+                "thin arrow" | "arrow thin" | "dash arrow" | "minus arrow" => Some("->"),
+                "plus equals" | "plus equal" => Some("+="),
+                "minus equals" | "minus equal" => Some("-="),
+                "times equals" | "star equals" => Some("*="),
+                "divide equals" | "slash equals" => Some("/="),
+                "less equal" | "less equals" => Some("<="),
+                "greater equal" | "greater equals" => Some(">="),
+                "left shift" | "shift left" => Some("<<"),
+                "right shift" | "shift right" => Some(">>"),
+                // Common words that become symbols in code
+                "and sign" => Some("&"),
+                "or sign" => Some("|"),
+                _ => None,
+            } {
+                result.push(sym.to_string());
+                i += 2;
+                continue;
+            }
+        }
+
+        // Single word symbols
+        let word = &clean[i];
+        let converted = match word.as_str() {
+            // Single character symbols
+            "dot" | "period" => ".",
+            "comma" => ",",
+            "colon" => ":",
+            "semicolon" | "semi" => ";",
+            "equals" | "equal" => "=",
+            "plus" => "+",
+            "minus" | "dash" | "hyphen" => "-",
+            "asterisk" | "star" | "times" => "*",
+            "slash" | "divide" => "/",
+            "backslash" => "\\",
+            "pipe" => "|",
+            "ampersand" | "amp" => "&",
+            "caret" | "hat" => "^",
+            "tilde" | "squiggle" => "~",
+            "at" => "@",
+            "hash" | "pound" | "hashtag" => "#",
+            "dollar" | "dollars" => "$",
+            "percent" => "%",
+            "bang" | "exclamation" => "!",
+            "question" => "?",
+            "underscore" => "_",
+            "backtick" | "grave" => "`",
+            "quote" | "double quote" => "\"",
+            "single quote" | "apostrophe" => "'",
+            // Standalone parens/brackets (ambiguous, default open)
+            "paren" | "parenthesis" => "(",
+            "bracket" => "[",
+            "brace" => "{",
+            "angle" => "<",
+            // Pass through anything else
+            _ => "",
+        };
+
+        if converted.is_empty() {
+            // Not a symbol, keep original word with space
+            result.push(words[i].to_string());
+        } else {
+            result.push(converted.to_string());
+        }
+        i += 1;
+    }
+
+    // Join without spaces between symbols, with spaces between words
+    let mut output = String::new();
+    for (idx, token) in result.iter().enumerate() {
+        if idx > 0 {
+            // Add space only if both current and previous are words (not symbols)
+            let prev = &result[idx - 1];
+            let prev_is_word = prev.chars().all(|c| c.is_alphanumeric() || c == '_');
+            let curr_is_word = token.chars().all(|c| c.is_alphanumeric() || c == '_');
+            if prev_is_word && curr_is_word {
+                output.push(' ');
+            }
+        }
+        output.push_str(token);
+    }
+
+    output
+}
+
+/// Apply alternating case transformation: aLtErNaTiNg CaPs
+pub fn apply_alternating_mode(text: &str) -> String {
+    text.chars()
+        .enumerate()
+        .map(|(i, c)| {
+            if i % 2 == 0 {
+                c.to_lowercase().to_string()
+            } else {
+                c.to_uppercase().to_string()
+            }
+        })
+        .collect()
+}
+
+/// Apply swearing mode: replaces swear words with grawlix (@#$%!)
+pub fn apply_swearing_mode(text: &str) -> String {
+    let grawlix = ["@", "#", "$", "%", "!", "&", "*"];
+    let swears = [
+        "fuck", "fucking", "fucked", "fucker", "fucks",
+        "shit", "shitting", "shitty", "shits",
+        "damn", "damned", "dammit",
+        "ass", "asses", "asshole", "assholes",
+        "bitch", "bitches", "bitchy",
+        "crap", "crappy",
+        "hell", "heck",
+        "bastard", "bastards",
+        "dick", "dicks",
+        "piss", "pissed", "pissing",
+        "cock", "cocks",
+        "cunt", "cunts",
+    ];
+
+    let words: Vec<&str> = text.split_whitespace().collect();
+    let result: Vec<String> = words.iter().map(|word| {
+        let lower = word.to_lowercase();
+        let clean = lower.trim_matches(|c: char| !c.is_alphanumeric());
+
+        if swears.contains(&clean) {
+            // Generate grawlix of similar length
+            let len = word.len().max(3).min(7);
+            (0..len).map(|i| grawlix[i % grawlix.len()]).collect()
+        } else {
+            word.to_string()
+        }
+    }).collect();
+
+    result.join(" ")
+}
+
 /// Set the current case mode
 pub fn set_case_mode(mode: CaseMode) {
     if let Ok(mut current) = CURRENT_MODE.lock() {
@@ -329,6 +506,9 @@ pub fn parse_mode_name(name: &str) -> Option<CaseMode> {
         "caps" | "upper" | "uppercase" | "capital" | "capitals" => Some(CaseMode::Caps),
         "lower" | "lowercase" => Some(CaseMode::Lower),
         "math" | "maths" | "numeral" | "numerals" | "numbers" => Some(CaseMode::Math),
+        "code" | "coding" | "programming" | "symbols" => Some(CaseMode::Code),
+        "alternating" | "alternate" | "spongebob" | "mocking" => Some(CaseMode::Alternating),
+        "swearing" | "swear" | "grawlix" | "censored" | "censor" => Some(CaseMode::Swearing),
         _ => None,
     }
 }
@@ -348,13 +528,16 @@ pub fn execute_mode(mode_name: &str) -> Result<bool> {
                 CaseMode::Caps => "CAPS LOCK",
                 CaseMode::Lower => "lowercase",
                 CaseMode::Math => "math (one plus one → 1 + 1)",
+                CaseMode::Code => "code (open paren → ()",
+                CaseMode::Alternating => "aLtErNaTiNg CaPs",
+                CaseMode::Swearing => "swearing (fuck → @#$%!)",
             };
             println!("[SS9K] 🔤 Mode: {}", mode_str);
             Ok(true)
         }
         None => {
             eprintln!("[SS9K] ⚠️ Unknown mode: {}", mode_name);
-            eprintln!("[SS9K] Available: off, snake, camel, pascal, kebab, screaming, caps, lower, math");
+            eprintln!("[SS9K] Available: off, snake, camel, pascal, kebab, screaming, caps, lower, math, code, alternating, swearing");
             Ok(false)
         }
     }
@@ -1103,7 +1286,8 @@ pub fn print_help() {
     println!("║   [leader] insert [X]  - insert snippet from config          ║");
     println!("║   [leader] wrap [X] [text] - wrap text (quotes, parens, etc) ║");
     println!("║   [leader] mode [X]    - modes: snake, camel, pascal, kebab, ║");
-    println!("║                          screaming, caps, lower, math, off   ║");
+    println!("║                          screaming, caps, lower, math, code, ║");
+    println!("║                          alternating, swearing, off          ║");
     println!("╠══════════════════════════════════════════════════════════════╣");
     println!("║ CONFIG:     ~/.config/ss9k/config.toml                       ║");
     println!("║ DOCS:       https://github.com/sqrew/ss9k                    ║");

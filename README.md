@@ -30,7 +30,8 @@ Press a key, speak, release. Your words appear at cursor. Or launch apps, contro
 - **Shift mode** - Text selection: "command shift right times five" selects 5 characters
 - **Hold/Release** - Hold keys for gaming/accessibility: "command hold w" runs forward
 - **Emoji** - 80+ emoji via voice: "emoji thumbs up" → 👍
-- **Case modes** - snake_case, camelCase, PascalCase, SCREAMING_SNAKE, and more
+- **Case modes** - snake_case, camelCase, PascalCase, SCREAMING_SNAKE, aLtErNaTiNg, and more
+- **Code mode** - Symbol names to symbols: "open paren x close paren" → `(x)`
 - **Math mode** - Spoken math to symbols: "one plus one" → `1 + 1`
 - **Inserts** - Text snippets with dynamic placeholders: `{date}`, `{shell:git branch}`, any command output
 - **Wrappers** - Wrap text by voice: "wrap quotes hello" → `"hello"`
@@ -186,21 +187,35 @@ Supports: all letters (a-z), modifiers (shift, control/ctrl, alt, meta/super/win
 
 **Case Modes** (say "command mode" + mode name):
 
-| Mode        | Effect                | Example Output       |
-|-------------|-----------------------|----------------------|
-| `snake`     | snake_case            | hello_world          |
-| `camel`     | camelCase             | helloWorld           |
-| `pascal`    | PascalCase            | HelloWorld           |
-| `kebab`     | kebab-case            | hello-world          |
-| `screaming` | SCREAMING_SNAKE       | HELLO_WORLD          |
-| `caps`      | ALL CAPS              | HELLO WORLD          |
-| `lower`     | lowercase             | hello world          |
-| `math`      | spoken math → symbols | one plus one → 1 + 1 |
-| `off`       | normal (default)      | hello world          |
+| Mode          | Effect                  | Example Output         |
+|---------------|-------------------------|------------------------|
+| `snake`       | snake_case              | hello_world            |
+| `camel`       | camelCase               | helloWorld             |
+| `pascal`      | PascalCase              | HelloWorld             |
+| `kebab`       | kebab-case              | hello-world            |
+| `screaming`   | SCREAMING_SNAKE         | HELLO_WORLD            |
+| `caps`        | ALL CAPS                | HELLO WORLD            |
+| `lower`       | lowercase               | hello world            |
+| `math`        | spoken math → symbols   | one plus one → 1 + 1   |
+| `code`        | symbol names → symbols  | open paren x → (x      |
+| `alternating` | aLtErNaTiNg CaPs        | hElLo WoRlD            |
+| `swearing`    | censors profanity       | fuck → @#$%!           |
+| `off`         | normal (default)        | hello world            |
 
 Mode persists until changed. Say "command mode snake", then dictate naturally—all text becomes snake_case. Say "command mode off" to return to normal.
 
-**Tip:** Great for coding—"mode snake" for Python, "mode camel" for JavaScript, "mode pascal" for type names.
+**Tip:** Great for coding—"mode snake" for Python, "mode camel" for JavaScript, "mode pascal" for type names. Combine with "mode code" for voice coding!
+
+**Code Mode** converts symbol names to tight symbols for actual coding:
+
+| Input                                        | Output           |
+|----------------------------------------------|------------------|
+| `function open paren x close paren`          | function(x)      |
+| `if x double equals y open brace`            | if x == y {      |
+| `array open bracket zero close bracket`      | array[0]         |
+| `return ampersand ampersand result semicolon`| return && result;|
+
+Supports: parentheses, brackets, braces, angle brackets, all operators (==, !=, &&, ||, ::, ->, =>, +=, etc.), and common symbols (dot, comma, semicolon, etc.).
 
 **Math Mode** converts spoken math to symbols:
 
@@ -384,7 +399,8 @@ There are several voice control tools out there. Here's how SS9K compares:
 | **Speech Engine**    | Whisper.cpp     | Own/Whisper  | Proprietary  | Whisper     | Whisper.cpp    | VOSK           |
 | **Fully Local**      | ✅              | ✅           | ✅           | ⚠️ Optional  | ✅             | ✅             |
 | **Voice Commands**   | ✅ Full         | ✅ Scripting | ⚠️ Basic      | ❌          | ⚠️ Punctuation  | ❌             |
-| **Case Modes**       | ✅ 8 modes      | ✅           | ❌           | ❌          | ❌             | ❌             |
+| **Case Modes**       | ✅ 12 modes     | ✅           | ❌           | ❌          | ❌             | ❌             |
+| **Code Mode**        | ✅              | ❌           | ❌           | ❌          | ❌             | ❌             |
 | **Math Mode**        | ✅              | ❌           | ❌           | ❌          | ❌             | ❌             |
 | **Insert Snippets**  | ✅ + `{shell:}` | ✅ Python    | ❌           | ❌          | ❌             | ❌             |
 | **Text Wrappers**    | ✅              | ✅           | ❌           | ❌          | ❌             | ❌             |
@@ -400,7 +416,7 @@ There are several voice control tools out there. Here's how SS9K compares:
 - **Want minimal Linux-only dictation?** → [Voxtype](https://github.com/peteonrails/voxtype) or [Nerd Dictation](https://github.com/ideasman42/nerd-dictation)
 - **Want mac dictation with a GUI?** → [Dictara](https://github.com/vitalii-zinchenko/dictara)
 
-SS9K sits in the sweet spot: **Talon-level features without the scripting complexity.** Everything is configured in a simple TOML file, yet you get case modes, math mode, shell integration, custom commands, and more.
+SS9K sits in the sweet spot: **Talon-level features without the scripting complexity.** Everything is configured in a simple TOML file, yet you get case modes, code mode, math mode, shell integration, custom commands, and more.
 
 ## Why?
 
