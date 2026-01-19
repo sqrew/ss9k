@@ -60,6 +60,10 @@ processing_timeout_secs = 30
 # Errors still print. Set true once you're comfortable with the tool.
 quiet = false
 
+# Audio feedback (system beep)
+# Single beep when recording starts, double beep when transcription completes
+audio_feedback = false
+
 # Custom voice commands
 # Maps spoken phrase -> shell command
 # Supports $ENV_VAR expansion (e.g., $TERMINAL, $BROWSER, $EDITOR)

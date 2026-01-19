@@ -28,6 +28,20 @@ static RECORDING: AtomicBool = AtomicBool::new(false);
 static RECORDING_SESSION: AtomicU64 = AtomicU64::new(0);
 static COMMAND_MODE: AtomicBool = AtomicBool::new(false); // True if recording was started with command_hotkey
 
+/// System beep for audio feedback (single beep)
+fn beep() {
+    print!("\x07");
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+}
+
+/// Double beep for completion feedback
+fn beep_done() {
+    beep();
+    std::thread::sleep(Duration::from_millis(100));
+    beep();
+}
+
 /// Configuration for SS9K
 #[derive(Debug, Deserialize, Clone)]
 #[serde(default)]
@@ -43,6 +57,8 @@ pub struct Config {
     pub leader: String,
     pub key_repeat_ms: u64,
     pub processing_timeout_secs: u64, // 0 = no timeout
+    #[serde(default)]
+    pub audio_feedback: bool, // Beep on start/stop listening
     #[serde(default)]
     pub commands: HashMap<String, String>,
     #[serde(default)]
@@ -69,6 +85,7 @@ impl Default for Config {
             leader: "command".to_string(),
             key_repeat_ms: 50,
             processing_timeout_secs: 30, // Default 30s timeout
+            audio_feedback: false,       // Disabled by default
             commands: HashMap::new(),
             aliases: HashMap::new(),
             inserts: HashMap::new(),
@@ -224,6 +241,10 @@ processing_timeout_secs = 30
 # Suppress verbose output (processing, resampling, transcription logs)
 # Errors still print. Set true once you're comfortable with the tool.
 quiet = false
+
+# Audio feedback (system beep)
+# Single beep when recording starts, double beep when transcription completes
+audio_feedback = false
 
 # Custom voice commands
 # Maps spoken phrase -> shell command
@@ -501,6 +522,8 @@ fn main() -> Result<()> {
                                         Ok(mut enigo) => {
                                             if let Err(e) = execute_command(&mut enigo, &text, &cfg.leader, &cfg.commands, &cfg.aliases, &cfg.inserts, &cfg.wrappers) {
                                                 eprintln!("[SS9K] ❌ Command/Type error: {}", e);
+                                            } else if cfg.audio_feedback {
+                                                beep_done();
                                             }
                                         }
                                         Err(e) => eprintln!("[SS9K] ❌ Enigo init error: {}", e),
@@ -584,6 +607,7 @@ fn main() -> Result<()> {
                         COMMAND_MODE.store(using_command_key, Ordering::SeqCst);
 
                         let hotkey_name = if using_command_key { cfg.command_hotkey.clone() } else { cfg.hotkey.clone() };
+                        if cfg.audio_feedback { beep(); }
                         if toggle_timeout > 0 {
                             println!("[SS9K] 🎙️ Recording... ({} to stop, or {}s timeout)", hotkey_name, toggle_timeout);
 
@@ -615,6 +639,7 @@ fn main() -> Result<()> {
                         recording_for_kb.store(true, Ordering::SeqCst);
                         RECORDING.store(true, Ordering::SeqCst);
                         COMMAND_MODE.store(using_command_key, Ordering::SeqCst);
+                        if cfg.audio_feedback { beep(); }
                         if using_command_key {
                             println!("[SS9K] 🎙️ Recording (command mode)...");
                         } else {
