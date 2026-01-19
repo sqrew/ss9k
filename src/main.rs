@@ -26,6 +26,7 @@ use model::{download_model, get_model_install_path, get_model_path};
 // Recording state
 static RECORDING: AtomicBool = AtomicBool::new(false);
 static RECORDING_SESSION: AtomicU64 = AtomicU64::new(0);
+static COMMAND_MODE: AtomicBool = AtomicBool::new(false); // True if recording was started with command_hotkey
 
 /// Configuration for SS9K
 #[derive(Debug, Deserialize, Clone)]
@@ -36,10 +37,12 @@ pub struct Config {
     pub threads: usize,
     pub device: String,
     pub hotkey: String,
+    pub command_hotkey: String, // Alternate hotkey that auto-prefixes with leader word
     pub hotkey_mode: String,
     pub toggle_timeout_secs: u64,
     pub leader: String,
     pub key_repeat_ms: u64,
+    pub processing_timeout_secs: u64, // 0 = no timeout
     #[serde(default)]
     pub commands: HashMap<String, String>,
     #[serde(default)]
@@ -60,10 +63,12 @@ impl Default for Config {
             threads: 4,
             device: String::new(),
             hotkey: "F12".to_string(),
+            command_hotkey: String::new(), // Empty = disabled
             hotkey_mode: "hold".to_string(),
             toggle_timeout_secs: 0,
             leader: "command".to_string(),
             key_repeat_ms: 50,
+            processing_timeout_secs: 30, // Default 30s timeout
             commands: HashMap::new(),
             aliases: HashMap::new(),
             inserts: HashMap::new(),
@@ -181,6 +186,9 @@ fn main() -> Result<()> {
     print_help();
 
     println!("[SS9K] Hotkey: {} (mode: {})", config.hotkey, config.hotkey_mode);
+    if !config.command_hotkey.is_empty() {
+        println!("[SS9K] Command hotkey: {} (auto-prefixes '{}')", config.command_hotkey, config.leader);
+    }
     if !config.commands.is_empty() {
         println!("[SS9K] Custom commands: {} loaded", config.commands.len());
     }
@@ -310,7 +318,9 @@ fn main() -> Result<()> {
             for audio_data in audio_rx {
                 let cfg = config.load();
                 let quiet = cfg.quiet;
+                let timeout_secs = cfg.processing_timeout_secs;
 
+                let start_time = std::time::Instant::now();
                 if !quiet {
                     println!("[SS9K] 🔄 Processing {} samples...", audio_data.len());
                 }
@@ -321,10 +331,53 @@ fn main() -> Result<()> {
                             println!("[SS9K] 🔄 Resampled to {} samples at 16kHz", resampled.len());
                         }
 
-                        match transcribe(&ctx, &resampled, &cfg) {
+                        // Run transcription with optional timeout
+                        let transcribe_result = if timeout_secs > 0 {
+                            // Spawn transcription in a thread and wait with timeout
+                            let (tx, rx) = mpsc::channel();
+                            let ctx_clone = ctx.clone();
+                            let cfg_clone = cfg.clone();
+                            let resampled_clone = resampled.clone();
+
+                            std::thread::spawn(move || {
+                                let result = transcribe(&ctx_clone, &resampled_clone, &cfg_clone);
+                                let _ = tx.send(result); // Ignore send error if receiver dropped
+                            });
+
+                            match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
+                                Ok(result) => result,
+                                Err(mpsc::RecvTimeoutError::Timeout) => {
+                                    let elapsed = start_time.elapsed().as_secs_f32();
+                                    eprintln!("[SS9K] ⏱️ TIMEOUT: Processing exceeded {}s limit (ran for {:.1}s)", timeout_secs, elapsed);
+                                    eprintln!("[SS9K] 💡 Tip: Try a smaller model (tiny/base) or increase processing_timeout_secs");
+                                    COMMAND_MODE.store(false, Ordering::SeqCst); // Reset command mode
+                                    continue;
+                                }
+                                Err(mpsc::RecvTimeoutError::Disconnected) => {
+                                    eprintln!("[SS9K] ❌ Transcription thread crashed");
+                                    COMMAND_MODE.store(false, Ordering::SeqCst);
+                                    continue;
+                                }
+                            }
+                        } else {
+                            // No timeout - blocking call
+                            transcribe(&ctx, &resampled, &cfg)
+                        };
+
+                        let elapsed = start_time.elapsed().as_secs_f32();
+
+                        match transcribe_result {
                             Ok(text) => {
+                                // If command_hotkey was used, prepend the leader word
+                                let text = if COMMAND_MODE.load(Ordering::SeqCst) {
+                                    COMMAND_MODE.store(false, Ordering::SeqCst); // Reset for next recording
+                                    format!("{} {}", cfg.leader, text)
+                                } else {
+                                    text
+                                };
+
                                 if !quiet {
-                                    println!("[SS9K] 📝 Transcription: {}", text);
+                                    println!("[SS9K] 📝 Transcription ({:.1}s): {}", elapsed, text);
                                 }
                                 if !text.is_empty() {
                                     // Update key repeat rate from config
@@ -340,7 +393,7 @@ fn main() -> Result<()> {
                                     }
                                 }
                             }
-                            Err(e) => eprintln!("[SS9K] ❌ Transcription error: {}", e),
+                            Err(e) => eprintln!("[SS9K] ❌ Transcription error ({:.1}s): {}", elapsed, e),
                         }
                     }
                     Err(e) => eprintln!("[SS9K] ❌ Resample error: {}", e),
@@ -387,11 +440,19 @@ fn main() -> Result<()> {
     let callback = move |event: Event| {
         let cfg = config_for_kb.load();
         let current_hotkey = parse_hotkey(&cfg.hotkey).unwrap_or(RdevKey::F12);
+        let command_hotkey = parse_hotkey(&cfg.command_hotkey); // None if empty/invalid
         let is_toggle_mode = cfg.hotkey_mode == "toggle";
         let toggle_timeout = cfg.toggle_timeout_secs;
 
+        // Check if this key is one of our hotkeys
+        let is_dictation_key = |key: RdevKey| key == current_hotkey;
+        let is_command_key = |key: RdevKey| command_hotkey.map_or(false, |ck| key == ck);
+        let is_our_hotkey = |key: RdevKey| is_dictation_key(key) || is_command_key(key);
+
         match event.event_type {
-            EventType::KeyPress(key) if key == current_hotkey => {
+            EventType::KeyPress(key) if is_our_hotkey(key) => {
+                // Set command mode if this is the command hotkey
+                let using_command_key = is_command_key(key);
                 if is_toggle_mode {
                     if recording_for_kb.load(Ordering::SeqCst) {
                         recording_for_kb.store(false, Ordering::SeqCst);
@@ -406,8 +467,9 @@ fn main() -> Result<()> {
                         let session_id = RECORDING_SESSION.fetch_add(1, Ordering::SeqCst) + 1;
                         recording_for_kb.store(true, Ordering::SeqCst);
                         RECORDING.store(true, Ordering::SeqCst);
+                        COMMAND_MODE.store(using_command_key, Ordering::SeqCst);
 
-                        let hotkey_name = cfg.hotkey.clone();
+                        let hotkey_name = if using_command_key { cfg.command_hotkey.clone() } else { cfg.hotkey.clone() };
                         if toggle_timeout > 0 {
                             println!("[SS9K] 🎙️ Recording... ({} to stop, or {}s timeout)", hotkey_name, toggle_timeout);
 
@@ -438,11 +500,16 @@ fn main() -> Result<()> {
                         CALLBACK_COUNT.store(0, Ordering::SeqCst);
                         recording_for_kb.store(true, Ordering::SeqCst);
                         RECORDING.store(true, Ordering::SeqCst);
-                        println!("[SS9K] 🎙️ Recording...");
+                        COMMAND_MODE.store(using_command_key, Ordering::SeqCst);
+                        if using_command_key {
+                            println!("[SS9K] 🎙️ Recording (command mode)...");
+                        } else {
+                            println!("[SS9K] 🎙️ Recording...");
+                        }
                     }
                 }
             }
-            EventType::KeyRelease(key) if key == current_hotkey => {
+            EventType::KeyRelease(key) if is_our_hotkey(key) => {
                 if !is_toggle_mode {
                     if recording_for_kb.load(Ordering::SeqCst) {
                         recording_for_kb.store(false, Ordering::SeqCst);

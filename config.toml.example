@@ -21,11 +21,19 @@ threads = 4
 # Example: "Microphone" or "Blue Yeti"
 device = ""
 
-# Hotkey to trigger recording
+# Hotkey to trigger recording (dictation mode)
 # Options: F1-F12, ScrollLock, Pause, PrintScreen, Insert, Home, End, PageUp, PageDown, Num0-Num9
 hotkey = "F12"
 
+# Command hotkey - alternate key that auto-prefixes with leader word
+# Use this to speak commands without saying "command" first
+# Example: with command_hotkey = "F11", pressing F11 and saying "enter"
+# is the same as pressing F12 and saying "command enter"
+# Leave empty to disable
+command_hotkey = ""
+
 # Hotkey mode: "hold" (release to stop) or "toggle" (press again to stop)
+# Applies to both hotkey and command_hotkey
 hotkey_mode = "hold"
 
 # Auto-stop timeout for toggle mode (0 = no timeout)
@@ -40,6 +48,12 @@ leader = "command"
 # Lower = faster repeat, higher = slower
 # Used when you say "command hold w" to spam a key
 key_repeat_ms = 50
+
+# Processing timeout in seconds (0 = no timeout)
+# If transcription takes longer than this, it will be aborted
+# Useful for weak CPUs that might hang on larger models
+# Tip: If you hit timeouts often, try model = "tiny" or "base"
+processing_timeout_secs = 30
 
 # Suppress verbose output (processing, resampling, transcription logs)
 # Errors still print. Set true once you're comfortable with the tool.
