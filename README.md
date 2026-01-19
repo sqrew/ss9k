@@ -2,18 +2,28 @@
 
 **Screech at your computer. It listens.**
 
-A local, GPU-accelerated speech-to-text tool that types wherever your cursor is. Built for accessibility, privacy, and freedom.
+A local, GPU-accelerated speech-to-text tool that types wherever your cursor is and controls your system by voice. Built for accessibility, privacy, and freedom.
 
 ## What It Does
 
-Press a key, speak, release. Your words appear at cursor. Or say a command. No cloud. No API keys. No subscriptions. Just you and your computer.
+Press a key, speak, release. Your words appear at cursor. Or launch apps, control media, run shell commands—anything you can type or execute. No cloud. No API keys. No subscriptions. Just you and your computer.
+
+```toml
+# Example: map voice phrases to shell commands
+[commands]
+"open browser" = "$BROWSER"
+"open terminal" = "kitty"
+"screenshot" = "flameshot gui"
+"lock screen" = "loginctl lock-session"
+```
 
 ## Features
 
 - **Local inference** - Whisper runs on YOUR machine
 - **GPU accelerated** - Vulkan (Intel/AMD), CUDA (NVIDIA), Metal (macOS)
 - **Types at cursor** - Works anywhere: editors, browsers, chat apps
-- **Voice commands** - Navigation, editing, media controls, custom shell commands
+- **System control** - Launch apps, run scripts, execute any shell command by voice
+- **Voice commands** - Navigation, editing, media controls, and more
 - **Leader words** - No reserved words; say "command enter" vs just "enter"
 - **Punctuation** - 50+ symbols via voice: "punctuation arrow" → `=>`
 - **Spell mode** - NATO phonetic, letters, numbers, punctuation: "command spell alpha at bravo dot com" → `a@b.com`
@@ -22,7 +32,7 @@ Press a key, speak, release. Your words appear at cursor. Or say a command. No c
 - **Emoji** - 80+ emoji via voice: "emoji thumbs up" → 👍
 - **Case modes** - snake_case, camelCase, PascalCase, SCREAMING_SNAKE, and more
 - **Math mode** - Spoken math to symbols: "one plus one" → `1 + 1`
-- **Inserts** - Voice-triggered text snippets with placeholders: `{date}`, `{shell:cmd}`
+- **Inserts** - Text snippets with dynamic placeholders: `{date}`, `{shell:git branch}`, any command output
 - **Wrappers** - Wrap text by voice: "wrap quotes hello" → `"hello"`
 - **Repetition** - "command backspace times five" or "command repeat three"
 - **Mishearing tolerance** - Built-in handling for common Whisper errors (caret/carrot, colon/colin, etc.)
@@ -35,8 +45,15 @@ Press a key, speak, release. Your words appear at cursor. Or say a command. No c
 
 ## Installation
 
+### Pre-built Binaries (Recommended)
+
+Download the latest release for your platform from [GitHub Releases](https://github.com/sqrew/ss9k/releases).
+
+Just extract and run - models download automatically on first launch.
+
+### Build from Source (Linux)
+
 ```bash
-# Clone and build (Linux)
 git clone https://github.com/sqrew/ss9k
 cd ss9k
 cargo build --release
@@ -169,17 +186,17 @@ Supports: all letters (a-z), modifiers (shift, control/ctrl, alt, meta/super/win
 
 **Case Modes** (say "command mode" + mode name):
 
-| Mode | Effect | Example Output |
-|------|--------|----------------|
-| `snake` | snake_case | hello_world |
-| `camel` | camelCase | helloWorld |
-| `pascal` | PascalCase | HelloWorld |
-| `kebab` | kebab-case | hello-world |
-| `screaming` | SCREAMING_SNAKE | HELLO_WORLD |
-| `caps` | ALL CAPS | HELLO WORLD |
-| `lower` | lowercase | hello world |
-| `math` | spoken math → symbols | one plus one → 1 + 1 |
-| `off` | normal (default) | hello world |
+| Mode        | Effect                | Example Output       |
+|-------------|-----------------------|----------------------|
+| `snake`     | snake_case            | hello_world          |
+| `camel`     | camelCase             | helloWorld           |
+| `pascal`    | PascalCase            | HelloWorld           |
+| `kebab`     | kebab-case            | hello-world          |
+| `screaming` | SCREAMING_SNAKE       | HELLO_WORLD          |
+| `caps`      | ALL CAPS              | HELLO WORLD          |
+| `lower`     | lowercase             | hello world          |
+| `math`      | spoken math → symbols | one plus one → 1 + 1 |
+| `off`       | normal (default)      | hello world          |
 
 Mode persists until changed. Say "command mode snake", then dictate naturally—all text becomes snake_case. Say "command mode off" to return to normal.
 
@@ -187,13 +204,13 @@ Mode persists until changed. Say "command mode snake", then dictate naturally—
 
 **Math Mode** converts spoken math to symbols:
 
-| Input | Output |
-|-------|--------|
-| `one plus one` | 1 + 1 |
-| `five times three` | 5 * 3 |
-| `x greater than y` | x > y |
+| Input                             | Output    |
+|-----------------------------------|-----------|
+| `one plus one`                    | 1 + 1     |
+| `five times three`                | 5 * 3     |
+| `x greater than y`                | x > y     |
 | `open paren a plus b close paren` | ( a + b ) |
-| `three point one four` | 3 . 1 4 |
+| `three point one four`            | 3 . 1 4   |
 
 Supports: numbers 0-20, operators (+, -, *, /, =, %, ^), comparisons (>, <, >=, <=, !=, ==), parentheses/brackets/braces, decimals, and common homophones (to→2, for→4).
 
@@ -209,11 +226,11 @@ header = "// Created: {date}\n// Author: Your Name"
 branch = "{shell:git branch --show-current}"
 ```
 
-| Input | Output |
-|-------|--------|
-| `command insert email` | you@example.com |
+| Input                   | Output                                       |
+|-------------------------|----------------------------------------------|
+| `command insert email`  | you@example.com                              |
 | `command insert header` | // Created: 2026-01-17\n// Author: Your Name |
-| `command insert branch` | main (or current branch) |
+| `command insert branch` | main (or current branch)                     |
 
 **Placeholders:**
 - `{date}` → 2026-01-17
@@ -239,12 +256,12 @@ div = "<div>|</div>"
 bold = "**|**"
 ```
 
-| Input | Output |
-|-------|--------|
-| `command wrap quotes hello world` | "hello world" |
-| `command wrap parens check this` | (check this) |
-| `command wrap fire awesome` | 🔥awesome🔥 |
-| `command wrap div content here` | \<div\>content here\</div\> |
+| Input                             | Output                      |
+|-----------------------------------|-----------------------------|
+| `command wrap quotes hello world` | "hello world"               |
+| `command wrap parens check this`  | (check this)                |
+| `command wrap fire awesome`       | 🔥awesome🔥                 |
+| `command wrap div content here`   | \<div\>content here\</div\> |
 
 If the wrapper value contains `|`, it splits into left/right. Otherwise, the value is used on both sides.
 
