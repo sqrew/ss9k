@@ -2,6 +2,7 @@ mod audio;
 mod commands;
 mod lookups;
 mod model;
+mod vad;
 
 use anyhow::Result;
 use arc_swap::ArcSwap;
@@ -19,14 +20,28 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use whisper_rs::{WhisperContext, WhisperContextParameters};
 
-use audio::{build_stream, is_microphone, resample_audio, transcribe, AudioBuffer, CALLBACK_COUNT, WHISPER_SAMPLE_RATE};
+use audio::{build_stream, build_stream_with_vad, is_microphone, resample_audio, transcribe, AudioBuffer, CALLBACK_COUNT, WHISPER_SAMPLE_RATE};
 use commands::{execute_command, print_help, set_key_repeat_ms};
 use model::{download_model, get_model_install_path, get_model_path};
+use vad::{Vad, VadEvent, VadState, VAD_SAMPLE_RATE};
 
 // Recording state
 static RECORDING: AtomicBool = AtomicBool::new(false);
 static RECORDING_SESSION: AtomicU64 = AtomicU64::new(0);
 static COMMAND_MODE: AtomicBool = AtomicBool::new(false); // True if recording was started with command_hotkey
+
+// VAD state
+static VAD_LISTENING: AtomicBool = AtomicBool::new(false); // True when VAD is actively listening
+
+/// Audio message for the processor thread
+enum AudioMessage {
+    /// Audio from hotkey mode - needs resampling from native rate
+    NeedsResampling(Vec<f32>),
+    /// Audio from VAD mode - already at 16kHz
+    AlreadyResampled(Vec<f32>),
+    /// Wake word check - quick transcribe first ~1.2s and check for wake word
+    WakeWordCheck(Vec<f32>),
+}
 
 /// System beep for audio feedback (single beep)
 fn beep() {
@@ -59,6 +74,13 @@ pub struct Config {
     pub processing_timeout_secs: u64, // 0 = no timeout
     #[serde(default)]
     pub audio_feedback: bool, // Beep on start/stop listening
+    // VAD settings
+    pub activation_mode: String,   // "hotkey" (default) or "vad"
+    pub vad_sensitivity: f32,      // 0.0-1.0, higher = more sensitive
+    pub vad_silence_ms: u64,       // Silence duration before processing
+    pub vad_min_speech_ms: u64,    // Minimum speech before valid
+    pub vad_speech_pad_ms: u64,    // Padding added to end of speech
+    pub wake_word: String,         // Wake word for VAD mode (empty = disabled)
     #[serde(default)]
     pub commands: HashMap<String, String>,
     #[serde(default)]
@@ -86,6 +108,13 @@ impl Default for Config {
             key_repeat_ms: 50,
             processing_timeout_secs: 30, // Default 30s timeout
             audio_feedback: false,       // Disabled by default
+            // VAD defaults
+            activation_mode: "hotkey".to_string(), // Default to hotkey mode
+            vad_sensitivity: 0.9,                  // High sensitivity for reliable detection
+            vad_silence_ms: 1000,                  // 1 second - tolerates natural pauses
+            vad_min_speech_ms: 200,                // Filter brief noises
+            vad_speech_pad_ms: 300,                // Pad end of speech to catch trailing words
+            wake_word: String::new(),              // Empty = no wake word required
             commands: HashMap::new(),
             aliases: HashMap::new(),
             inserts: HashMap::new(),
@@ -246,6 +275,22 @@ verbose = true
 # Single beep when recording starts, double beep when transcription completes
 audio_feedback = false
 
+# Activation mode: "hotkey" (default) or "vad" (voice activity detection)
+# - hotkey: Press a key to start/stop recording (traditional mode)
+# - vad: Automatically detect when you're speaking (hands-free mode)
+#        In VAD mode, the hotkey toggles listening on/off
+activation_mode = "hotkey"
+
+# VAD settings (only used when activation_mode = "vad")
+# Sensitivity: 0.0-1.0, higher = more sensitive to speech
+vad_sensitivity = 0.9
+# Silence duration (ms) before processing - wait for pause after speech
+vad_silence_ms = 1000
+# Minimum speech duration (ms) before it counts - ignore brief noises
+vad_min_speech_ms = 200
+# Speech padding (ms) - extra time at end to catch trailing words
+vad_speech_pad_ms = 300
+
 # Custom voice commands
 # Maps spoken phrase -> shell command
 # Supports $ENV_VAR expansion (e.g., $TERMINAL, $BROWSER, $EDITOR)
@@ -314,13 +359,21 @@ fn main() -> Result<()> {
     }
 
     println!("=================================");
-    println!("   SuperScreecher9000 v0.13.0");
+    println!("   SuperScreecher9000 v0.14.0");
     println!("   Press {} to screech", config.hotkey);
     println!("=================================");
 
     print_help();
 
-    println!("[SS9K] Hotkey: {} (mode: {})", config.hotkey, config.hotkey_mode);
+    if config.activation_mode == "vad" {
+        println!("[SS9K] Activation: VAD (voice activity detection)");
+        println!("[SS9K] Hotkey: {} (toggles VAD listening)", config.hotkey);
+        println!("[SS9K] VAD: sensitivity={}, silence={}ms, min_speech={}ms",
+                 config.vad_sensitivity, config.vad_silence_ms, config.vad_min_speech_ms);
+    } else {
+        println!("[SS9K] Activation: hotkey ({})", config.hotkey_mode);
+        println!("[SS9K] Hotkey: {} (mode: {})", config.hotkey, config.hotkey_mode);
+    }
     if !config.command_hotkey.is_empty() {
         println!("[SS9K] Command hotkey: {} (auto-prefixes '{}')", config.command_hotkey, config.leader);
     }
@@ -419,121 +472,408 @@ fn main() -> Result<()> {
     let sample_rate = audio_config.sample_rate().0;
     let channels = audio_config.channels() as usize;
 
+    let is_vad_mode = cfg.activation_mode == "vad";
+
+    // Shared state
     let audio_buffer: AudioBuffer = Arc::new(Mutex::new(Vec::new()));
-    let buffer_clone = audio_buffer.clone();
-
-    // Create Arc for recording state to pass to build_stream
     let recording_arc = Arc::new(AtomicBool::new(false));
-    let recording_for_stream = recording_arc.clone();
 
-    let err_fn = |err| eprintln!("[SS9K] Stream error: {}", err);
+    // Create audio channel for processor
+    let (audio_tx, audio_rx) = mpsc::channel::<AudioMessage>();
 
-    let stream = match audio_config.sample_format() {
-        cpal::SampleFormat::I8 => build_stream::<i8>(&device, &audio_config.into(), buffer_clone, channels, recording_for_stream, err_fn)?,
-        cpal::SampleFormat::I16 => build_stream::<i16>(&device, &audio_config.into(), buffer_clone, channels, recording_for_stream.clone(), err_fn)?,
-        cpal::SampleFormat::I32 => build_stream::<i32>(&device, &audio_config.into(), buffer_clone, channels, recording_for_stream.clone(), err_fn)?,
-        cpal::SampleFormat::F32 => build_stream::<f32>(&device, &audio_config.into(), buffer_clone, channels, recording_for_stream.clone(), err_fn)?,
-        format => {
-            eprintln!("[SS9K] Unsupported sample format: {:?}", format);
-            return Ok(());
+    // Create wake word result channel (processor -> VAD thread)
+    let (wake_word_tx, wake_word_rx) = mpsc::channel::<bool>();
+
+    // Build stream based on activation mode
+    let stream = if is_vad_mode {
+        println!("[SS9K] 🎤 VAD mode enabled");
+
+        // Create VAD audio channel
+        let (vad_audio_tx, vad_audio_rx) = mpsc::channel::<Vec<f32>>();
+
+        // Build VAD stream
+        let err_fn = |err| eprintln!("[SS9K] Stream error: {}", err);
+        let stream = match audio_config.sample_format() {
+            cpal::SampleFormat::I8 => build_stream_with_vad::<i8>(&device, &audio_config.clone().into(), vad_audio_tx.clone(), channels, err_fn)?,
+            cpal::SampleFormat::I16 => build_stream_with_vad::<i16>(&device, &audio_config.clone().into(), vad_audio_tx.clone(), channels, err_fn)?,
+            cpal::SampleFormat::I32 => build_stream_with_vad::<i32>(&device, &audio_config.clone().into(), vad_audio_tx.clone(), channels, err_fn)?,
+            cpal::SampleFormat::F32 => build_stream_with_vad::<f32>(&device, &audio_config.clone().into(), vad_audio_tx, channels, err_fn)?,
+            format => {
+                eprintln!("[SS9K] Unsupported sample format: {:?}", format);
+                return Ok(());
+            }
+        };
+
+        // Spawn VAD processor thread
+        {
+            let audio_tx = audio_tx.clone();
+            let config = config.clone();
+            let wake_word_rx = wake_word_rx; // Move receiver to VAD thread
+            std::thread::spawn(move || {
+                let cfg = config.load();
+                println!("[SS9K] 🎤 VAD thread starting (sensitivity: {}, silence: {}ms, min_speech: {}ms, pad: {}ms)",
+                         cfg.vad_sensitivity, cfg.vad_silence_ms, cfg.vad_min_speech_ms, cfg.vad_speech_pad_ms);
+
+                // Initialize VAD
+                let mut vad = match Vad::new(cfg.vad_sensitivity, cfg.vad_silence_ms, cfg.vad_min_speech_ms, cfg.vad_speech_pad_ms) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("[SS9K] ❌ Failed to initialize VAD: {}", e);
+                        return;
+                    }
+                };
+
+                // Enable wake word mode if configured
+                if !cfg.wake_word.is_empty() {
+                    vad.set_wake_word_enabled(true);
+                    println!("[SS9K] 🗣️ Wake word mode enabled: '{}'", cfg.wake_word);
+                }
+
+                // Buffer for accumulating audio to resample
+                let mut native_buffer: Vec<f32> = Vec::new();
+
+                // Process audio chunks
+                for chunk in vad_audio_rx {
+                    // Check for wake word results (non-blocking)
+                    while let Ok(wake_word_found) = wake_word_rx.try_recv() {
+                        if !wake_word_found {
+                            // Wake word not found - abort current utterance
+                            let cfg = config.load();
+                            if cfg.verbose {
+                                println!("[SS9K] ❌ Wake word not detected, aborting utterance");
+                            }
+                            vad.abort_utterance();
+                            native_buffer.clear();
+                        } else {
+                            let cfg = config.load();
+                            if cfg.verbose {
+                                println!("[SS9K] ✅ Wake word confirmed, continuing...");
+                            }
+                        }
+                    }
+
+                    // Reload config for hot-reload support
+                    let cfg = config.load();
+
+                    // Check if we should be listening
+                    if !VAD_LISTENING.load(Ordering::SeqCst) {
+                        // Not listening - reset VAD state if needed
+                        if vad.state() != VadState::Idle {
+                            vad.stop_listening();
+                            native_buffer.clear();
+                        }
+                        continue;
+                    }
+
+                    // Start listening if not already
+                    if vad.state() == VadState::Idle {
+                        vad.start_listening();
+                        native_buffer.clear();
+                        if cfg.audio_feedback { beep(); }
+                        println!("[SS9K] 🎤 VAD listening...");
+                    }
+
+                    // Accumulate audio
+                    native_buffer.extend_from_slice(&chunk);
+
+                    // Resample when we have enough samples
+                    // Resample in chunks to avoid latency
+                    let min_chunk = (sample_rate as usize) / 10; // 100ms chunks
+                    while native_buffer.len() >= min_chunk {
+                        let to_resample: Vec<f32> = native_buffer.drain(..min_chunk).collect();
+
+                        // Resample to 16kHz for VAD
+                        match resample_audio(&to_resample, sample_rate, VAD_SAMPLE_RATE) {
+                            Ok(resampled) => {
+                                // Feed to VAD
+                                let events = vad.feed(&resampled);
+
+                                for event in events {
+                                    match event {
+                                        VadEvent::StateChanged(state) => {
+                                            let cfg = config.load();
+                                            match state {
+                                                VadState::Speaking => {
+                                                    if cfg.verbose {
+                                                        println!("[SS9K] 🗣️ Speech detected!");
+                                                    }
+                                                }
+                                                VadState::SilenceDetected => {
+                                                    if cfg.verbose {
+                                                        println!("[SS9K] 🤫 Silence detected, waiting...");
+                                                    }
+                                                }
+                                                VadState::Listening => {
+                                                    if cfg.verbose {
+                                                        println!("[SS9K] 👂 Listening for speech...");
+                                                    }
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                        VadEvent::WakeWordCheckReady(audio) => {
+                                            let cfg = config.load();
+                                            if cfg.verbose {
+                                                let duration = audio.len() as f32 / VAD_SAMPLE_RATE as f32;
+                                                println!("[SS9K] 🔍 Sending {:.2}s for wake word check...", duration);
+                                            }
+                                            // Send for async wake word check
+                                            if let Err(e) = audio_tx.send(AudioMessage::WakeWordCheck(audio)) {
+                                                eprintln!("[SS9K] ❌ Failed to send wake word check: {}", e);
+                                            }
+                                        }
+                                        VadEvent::ReadyToProcess(audio) => {
+                                            let cfg = config.load();
+                                            let duration = audio.len() as f32 / VAD_SAMPLE_RATE as f32;
+                                            println!("[SS9K] 📤 VAD: Sending {:.2}s of speech for transcription", duration);
+
+                                            // Clear native buffer to start fresh for next utterance
+                                            native_buffer.clear();
+
+                                            // Send already-resampled audio to processor
+                                            if let Err(e) = audio_tx.send(AudioMessage::AlreadyResampled(audio)) {
+                                                eprintln!("[SS9K] ❌ Failed to send VAD audio: {}", e);
+                                            } else if cfg.audio_feedback {
+                                                beep_done();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                if cfg.verbose {
+                                    eprintln!("[SS9K] ⚠️ VAD resample error: {}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+                println!("[SS9K] 🎤 VAD thread exiting");
+            });
+        }
+
+        stream
+    } else {
+        // Hotkey mode - use existing stream
+        let buffer_clone = audio_buffer.clone();
+        let recording_for_stream = recording_arc.clone();
+        let err_fn = |err| eprintln!("[SS9K] Stream error: {}", err);
+
+        match audio_config.sample_format() {
+            cpal::SampleFormat::I8 => build_stream::<i8>(&device, &audio_config.into(), buffer_clone, channels, recording_for_stream, err_fn)?,
+            cpal::SampleFormat::I16 => build_stream::<i16>(&device, &audio_config.into(), buffer_clone, channels, recording_for_stream.clone(), err_fn)?,
+            cpal::SampleFormat::I32 => build_stream::<i32>(&device, &audio_config.into(), buffer_clone, channels, recording_for_stream.clone(), err_fn)?,
+            cpal::SampleFormat::F32 => build_stream::<f32>(&device, &audio_config.into(), buffer_clone, channels, recording_for_stream.clone(), err_fn)?,
+            format => {
+                eprintln!("[SS9K] Unsupported sample format: {:?}", format);
+                return Ok(());
+            }
         }
     };
 
     stream.play()?;
-    println!("[SS9K] Stream playing. Waiting for F12...");
-
-    let (audio_tx, audio_rx) = mpsc::channel::<Vec<f32>>();
+    if is_vad_mode {
+        println!("[SS9K] Stream playing. Press {} to toggle VAD listening...", cfg.hotkey);
+    } else {
+        println!("[SS9K] Stream playing. Press {} to record...", cfg.hotkey);
+    }
 
     // Spawn processor thread
     {
         let ctx = ctx.clone();
         let config = config.clone();
+        let wake_word_tx = wake_word_tx; // Move sender to processor thread
         std::thread::spawn(move || {
             println!("[SS9K] 🔧 Processor thread started");
-            for audio_data in audio_rx {
+            for audio_msg in audio_rx {
                 let cfg = config.load();
                 let verbose = cfg.verbose;
                 let timeout_secs = cfg.processing_timeout_secs;
 
                 let start_time = std::time::Instant::now();
-                if verbose {
-                    println!("[SS9K] 🔄 Processing {} samples...", audio_data.len());
-                }
 
-                match resample_audio(&audio_data, sample_rate, WHISPER_SAMPLE_RATE) {
-                    Ok(resampled) => {
-                        if verbose {
-                            println!("[SS9K] 🔄 Resampled to {} samples at 16kHz", resampled.len());
-                        }
+                // Handle wake word check separately (early return)
+                if let AudioMessage::WakeWordCheck(audio_data) = audio_msg {
+                    if verbose {
+                        println!("[SS9K] 🔍 Checking for wake word '{}'...", cfg.wake_word);
+                    }
 
-                        // Run transcription with optional timeout
-                        let transcribe_result = if timeout_secs > 0 {
-                            // Spawn transcription in a thread and wait with timeout
-                            let (tx, rx) = mpsc::channel();
-                            let ctx_clone = ctx.clone();
-                            let cfg_clone = cfg.clone();
-                            let resampled_clone = resampled.clone();
+                    // Quick transcription of the audio
+                    match transcribe(&ctx, &audio_data, &cfg) {
+                        Ok(check_text) => {
+                            let check_lower = check_text.to_lowercase();
+                            let wake_lower = cfg.wake_word.to_lowercase();
+                            let found = check_lower.contains(&wake_lower);
 
-                            std::thread::spawn(move || {
-                                let result = transcribe(&ctx_clone, &resampled_clone, &cfg_clone);
-                                let _ = tx.send(result); // Ignore send error if receiver dropped
-                            });
-
-                            match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
-                                Ok(result) => result,
-                                Err(mpsc::RecvTimeoutError::Timeout) => {
-                                    let elapsed = start_time.elapsed().as_secs_f32();
-                                    eprintln!("[SS9K] ⏱️ TIMEOUT: Processing exceeded {}s limit (ran for {:.1}s)", timeout_secs, elapsed);
-                                    eprintln!("[SS9K] 💡 Tip: Try a smaller model (tiny/base) or increase processing_timeout_secs");
-                                    COMMAND_MODE.store(false, Ordering::SeqCst); // Reset command mode
-                                    continue;
-                                }
-                                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                                    eprintln!("[SS9K] ❌ Transcription thread crashed");
-                                    COMMAND_MODE.store(false, Ordering::SeqCst);
-                                    continue;
-                                }
-                            }
-                        } else {
-                            // No timeout - blocking call
-                            transcribe(&ctx, &resampled, &cfg)
-                        };
-
-                        let elapsed = start_time.elapsed().as_secs_f32();
-
-                        match transcribe_result {
-                            Ok(text) => {
-                                // If command_hotkey was used, prepend the leader word
-                                let text = if COMMAND_MODE.load(Ordering::SeqCst) {
-                                    COMMAND_MODE.store(false, Ordering::SeqCst); // Reset for next recording
-                                    format!("{} {}", cfg.leader, text)
+                            if verbose {
+                                if found {
+                                    println!("[SS9K] ✅ Wake word '{}' found in: \"{}\"", cfg.wake_word, check_text.trim());
                                 } else {
-                                    text
-                                };
-
-                                if verbose {
-                                    println!("[SS9K] 📝 Transcription ({:.1}s): {}", elapsed, text);
-                                }
-                                if !text.is_empty() {
-                                    // Update key repeat rate from config
-                                    set_key_repeat_ms(cfg.key_repeat_ms);
-
-                                    match Enigo::new(&Settings::default()) {
-                                        Ok(mut enigo) => {
-                                            if let Err(e) = execute_command(&mut enigo, &text, &cfg.leader, &cfg.commands, &cfg.aliases, &cfg.inserts, &cfg.wrappers) {
-                                                eprintln!("[SS9K] ❌ Command/Type error: {}", e);
-                                            } else if cfg.audio_feedback {
-                                                beep_done();
-                                            }
-                                        }
-                                        Err(e) => eprintln!("[SS9K] ❌ Enigo init error: {}", e),
-                                    }
+                                    println!("[SS9K] ❌ Wake word '{}' not found in: \"{}\"", cfg.wake_word, check_text.trim());
                                 }
                             }
-                            Err(e) => eprintln!("[SS9K] ❌ Transcription error ({:.1}s): {}", elapsed, e),
+
+                            // Send result back to VAD thread
+                            let _ = wake_word_tx.send(found);
+                        }
+                        Err(e) => {
+                            eprintln!("[SS9K] ⚠️ Wake word check failed: {}", e);
+                            // On error, assume wake word found (don't reject)
+                            let _ = wake_word_tx.send(true);
                         }
                     }
-                    Err(e) => eprintln!("[SS9K] ❌ Resample error: {}", e),
+                    continue; // Don't process further
+                }
+
+                // Track if this is VAD audio (for wake word stripping)
+                let is_vad_audio = matches!(&audio_msg, AudioMessage::AlreadyResampled(_));
+
+                // Get resampled audio based on message type
+                let resampled = match audio_msg {
+                    AudioMessage::NeedsResampling(audio_data) => {
+                        if verbose {
+                            println!("[SS9K] 🔄 Processing {} samples...", audio_data.len());
+                        }
+                        match resample_audio(&audio_data, sample_rate, WHISPER_SAMPLE_RATE) {
+                            Ok(r) => {
+                                if verbose {
+                                    println!("[SS9K] 🔄 Resampled to {} samples at 16kHz", r.len());
+                                }
+                                r
+                            }
+                            Err(e) => {
+                                eprintln!("[SS9K] ❌ Resample error: {}", e);
+                                continue;
+                            }
+                        }
+                    }
+                    AudioMessage::AlreadyResampled(audio_data) => {
+                        if verbose {
+                            println!("[SS9K] 🔄 Processing {} pre-resampled samples...", audio_data.len());
+                        }
+                        audio_data
+                    }
+                    AudioMessage::WakeWordCheck(_) => {
+                        // Already handled above with early continue
+                        unreachable!()
+                    }
+                };
+
+                // Wake word check for VAD mode
+                if is_vad_audio && !cfg.wake_word.is_empty() {
+                    // Check first ~1.2s for wake word
+                    let check_samples = (WHISPER_SAMPLE_RATE as f32 * 1.2) as usize;
+                    let check_audio = if resampled.len() > check_samples {
+                        &resampled[..check_samples]
+                    } else {
+                        &resampled[..]
+                    };
+
+                    if verbose {
+                        println!("[SS9K] 🔍 Checking for wake word '{}'...", cfg.wake_word);
+                    }
+
+                    // Quick transcription of first segment
+                    match transcribe(&ctx, check_audio, &cfg) {
+                        Ok(check_text) => {
+                            let check_lower = check_text.to_lowercase();
+                            let wake_lower = cfg.wake_word.to_lowercase();
+                            if !check_lower.contains(&wake_lower) {
+                                if verbose {
+                                    println!("[SS9K] ❌ Wake word '{}' not found in: \"{}\"", cfg.wake_word, check_text.trim());
+                                }
+                                continue; // Skip this utterance
+                            }
+                            if verbose {
+                                println!("[SS9K] ✅ Wake word detected!");
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("[SS9K] ⚠️ Wake word check failed: {}", e);
+                            // Continue anyway - don't reject on error
+                        }
+                    }
+                }
+
+                // Run transcription with optional timeout
+                let transcribe_result = if timeout_secs > 0 {
+                    // Spawn transcription in a thread and wait with timeout
+                    let (tx, rx) = mpsc::channel();
+                    let ctx_clone = ctx.clone();
+                    let cfg_clone = cfg.clone();
+                    let resampled_clone = resampled.clone();
+
+                    std::thread::spawn(move || {
+                        let result = transcribe(&ctx_clone, &resampled_clone, &cfg_clone);
+                        let _ = tx.send(result); // Ignore send error if receiver dropped
+                    });
+
+                    match rx.recv_timeout(Duration::from_secs(timeout_secs)) {
+                        Ok(result) => result,
+                        Err(mpsc::RecvTimeoutError::Timeout) => {
+                            let elapsed = start_time.elapsed().as_secs_f32();
+                            eprintln!("[SS9K] ⏱️ TIMEOUT: Processing exceeded {}s limit (ran for {:.1}s)", timeout_secs, elapsed);
+                            eprintln!("[SS9K] 💡 Tip: Try a smaller model (tiny/base) or increase processing_timeout_secs");
+                            COMMAND_MODE.store(false, Ordering::SeqCst); // Reset command mode
+                            continue;
+                        }
+                        Err(mpsc::RecvTimeoutError::Disconnected) => {
+                            eprintln!("[SS9K] ❌ Transcription thread crashed");
+                            COMMAND_MODE.store(false, Ordering::SeqCst);
+                            continue;
+                        }
+                    }
+                } else {
+                    // No timeout - blocking call
+                    transcribe(&ctx, &resampled, &cfg)
+                };
+
+                let elapsed = start_time.elapsed().as_secs_f32();
+
+                match transcribe_result {
+                    Ok(text) => {
+                        // If command_hotkey was used, prepend the leader word
+                        let text = if COMMAND_MODE.load(Ordering::SeqCst) {
+                            COMMAND_MODE.store(false, Ordering::SeqCst); // Reset for next recording
+                            format!("{} {}", cfg.leader, text)
+                        } else {
+                            text
+                        };
+
+                        // Strip wake word from beginning if present (VAD mode only)
+                        let text = if is_vad_audio && !cfg.wake_word.is_empty() {
+                            let text_lower = text.to_lowercase();
+                            let wake_lower = cfg.wake_word.to_lowercase();
+                            if text_lower.starts_with(&wake_lower) {
+                                // Strip wake word and any following whitespace
+                                text[cfg.wake_word.len()..].trim_start().to_string()
+                            } else {
+                                text
+                            }
+                        } else {
+                            text
+                        };
+
+                        if verbose {
+                            println!("[SS9K] 📝 Transcription ({:.1}s): {}", elapsed, text);
+                        }
+                        if !text.is_empty() {
+                            // Update key repeat rate from config
+                            set_key_repeat_ms(cfg.key_repeat_ms);
+
+                            match Enigo::new(&Settings::default()) {
+                                Ok(mut enigo) => {
+                                    if let Err(e) = execute_command(&mut enigo, &text, &cfg.leader, &cfg.commands, &cfg.aliases, &cfg.inserts, &cfg.wrappers) {
+                                        eprintln!("[SS9K] ❌ Command/Type error: {}", e);
+                                    } else if cfg.audio_feedback {
+                                        beep_done();
+                                    }
+                                }
+                                Err(e) => eprintln!("[SS9K] ❌ Enigo init error: {}", e),
+                            }
+                        }
+                    }
+                    Err(e) => eprintln!("[SS9K] ❌ Transcription error ({:.1}s): {}", elapsed, e),
                 }
             }
             println!("[SS9K] 🔧 Processor thread exiting");
@@ -561,7 +901,7 @@ fn main() -> Result<()> {
             };
 
             if !audio_data.is_empty() {
-                if let Err(e) = tx.send(audio_data) {
+                if let Err(e) = tx.send(AudioMessage::NeedsResampling(audio_data)) {
                     eprintln!("[SS9K] ❌ Failed to queue audio: {}", e);
                 } else {
                     println!("[SS9K] 📤 Audio queued for processing");
@@ -580,6 +920,7 @@ fn main() -> Result<()> {
         let command_hotkey = parse_hotkey(&cfg.command_hotkey); // None if empty/invalid
         let is_toggle_mode = cfg.hotkey_mode == "toggle";
         let toggle_timeout = cfg.toggle_timeout_secs;
+        let is_vad_mode = cfg.activation_mode == "vad";
 
         // Check if this key is one of our hotkeys
         let is_dictation_key = |key: RdevKey| key == current_hotkey;
@@ -588,7 +929,20 @@ fn main() -> Result<()> {
 
         match event.event_type {
             EventType::KeyPress(key) if is_our_hotkey(key) => {
-                // Set command mode if this is the command hotkey
+                // VAD mode: hotkey toggles listening
+                if is_vad_mode {
+                    let was_listening = VAD_LISTENING.load(Ordering::SeqCst);
+                    VAD_LISTENING.store(!was_listening, Ordering::SeqCst);
+
+                    if was_listening {
+                        println!("[SS9K] 🔇 VAD listening stopped");
+                    } else {
+                        println!("[SS9K] 🎤 VAD listening started (press {} to stop)", cfg.hotkey);
+                    }
+                    return;
+                }
+
+                // Hotkey mode: original behavior
                 let using_command_key = is_command_key(key);
                 if is_toggle_mode {
                     if recording_for_kb.load(Ordering::SeqCst) {
@@ -649,6 +1003,11 @@ fn main() -> Result<()> {
                 }
             }
             EventType::KeyRelease(key) if is_our_hotkey(key) => {
+                // VAD mode doesn't use key release
+                if is_vad_mode {
+                    return;
+                }
+
                 if !is_toggle_mode {
                     if recording_for_kb.load(Ordering::SeqCst) {
                         recording_for_kb.store(false, Ordering::SeqCst);

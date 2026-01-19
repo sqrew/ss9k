@@ -64,6 +64,43 @@ verbose = true
 # Single beep when recording starts, double beep when transcription completes
 audio_feedback = false
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# VOICE ACTIVITY DETECTION (VAD) - Hands-free mode using Silero VAD
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Activation mode: "hotkey" (default) or "vad"
+# - hotkey: Press a key to start/stop recording (traditional mode)
+# - vad: Automatically detect when you're speaking (hands-free mode)
+#        In VAD mode, the hotkey toggles listening on/off
+activation_mode = "hotkey"
+
+# VAD sensitivity: 0.0-1.0
+# Higher = more sensitive to speech (may pick up noise)
+# Lower = less sensitive (may miss quiet speech)
+vad_sensitivity = 0.9
+
+# Silence duration (milliseconds) before processing
+# After you stop speaking, how long to wait before transcribing
+# Shorter = faster response, may cut off mid-pause
+# Longer = more forgiving of pauses, slower response
+vad_silence_ms = 1000
+
+# Minimum speech duration (milliseconds)
+# Ignore sounds shorter than this (filters out coughs, clicks, etc.)
+vad_min_speech_ms = 200
+
+# Speech padding (milliseconds)
+# Extra time added at end of speech to catch trailing words
+# Increase if you're getting cut off mid-sentence
+vad_speech_pad_ms = 300
+
+# Wake word (optional) - only process speech starting with this word
+# If set, utterances that don't begin with the wake word are ignored
+# Great for filtering out background conversations
+# Examples: "computer", "hey jarvis", "okay claude"
+# Leave empty to process all detected speech
+wake_word = ""
+
 # Custom voice commands
 # Maps spoken phrase -> shell command
 # Supports $ENV_VAR expansion (e.g., $TERMINAL, $BROWSER, $EDITOR)

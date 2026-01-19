@@ -111,8 +111,57 @@ pub fn resample_audio(input: &[f32], from_rate: u32, to_rate: u32) -> Result<Vec
     Ok(waves_out.into_iter().next().unwrap_or_default())
 }
 
+/// Build an audio input stream for VAD mode - sends all audio to a channel
+pub fn build_stream_with_vad<T>(
+    device: &cpal::Device,
+    config: &cpal::StreamConfig,
+    vad_tx: std::sync::mpsc::Sender<Vec<f32>>,
+    channels: usize,
+    err_fn: impl FnMut(cpal::StreamError) + Send + 'static,
+) -> Result<cpal::Stream>
+where
+    T: cpal::SizedSample,
+    f32: cpal::FromSample<T>,
+{
+    use cpal::traits::DeviceTrait;
+
+    let stream = device.build_input_stream(
+        config,
+        move |data: &[T], _: &cpal::InputCallbackInfo| {
+            CALLBACK_COUNT.fetch_add(1, Ordering::SeqCst);
+
+            // Check the static VAD_LISTENING flag
+            if crate::VAD_LISTENING.load(Ordering::SeqCst) {
+                // Convert to mono f32 and send to VAD
+                let mono: Vec<f32> = data.chunks(channels)
+                    .map(|chunk| {
+                        let sum: f32 = chunk.iter().map(|&s| <f32 as Sample>::from_sample(s)).sum();
+                        sum / channels as f32
+                    })
+                    .collect();
+
+                let _ = vad_tx.send(mono); // Ignore send errors (receiver might be processing)
+            }
+        },
+        err_fn,
+        None,
+    )?;
+    Ok(stream)
+}
+
 /// Transcribe audio using Whisper
 pub fn transcribe(ctx: &WhisperContext, audio: &[f32], config: &Config) -> Result<String> {
+    // Whisper requires minimum 1 second of audio (16000 samples at 16kHz)
+    // Pad with silence if shorter - use 1.1s to avoid edge cases
+    let min_samples = (WHISPER_SAMPLE_RATE as f32 * 1.1) as usize; // ~17600 samples
+    let audio = if audio.len() < min_samples {
+        let mut padded = audio.to_vec();
+        padded.resize(min_samples, 0.0); // Pad with silence
+        padded
+    } else {
+        audio.to_vec()
+    };
+
     let mut state = ctx.create_state()?;
 
     let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
@@ -122,7 +171,7 @@ pub fn transcribe(ctx: &WhisperContext, audio: &[f32], config: &Config) -> Resul
     params.set_print_realtime(false);
     params.set_print_timestamps(false);
 
-    state.full(params, audio)?;
+    state.full(params, &audio)?;
 
     let num_segments = state.full_n_segments()?;
     let mut result = String::new();

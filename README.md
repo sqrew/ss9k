@@ -42,6 +42,7 @@ Press a key, speak, release. Your words appear at cursor. Or launch apps, contro
 - **Hot-reload config** - Change settings without restarting
 - **Quiet mode** - Suppress verbose output once you're comfortable
 - **Multiple models** - tiny (75MB) to large (3GB), pick your speed/accuracy tradeoff
+- **VAD mode** - Voice Activity Detection for hands-free operation using Silero VAD
 - **Cross-platform ready** - Built with portable Rust crates
 
 ## Installation
@@ -316,7 +317,7 @@ hotkey_mode = "hold"         # hold (release to stop) or toggle (press again to 
 toggle_timeout_secs = 0      # auto-stop after N seconds in toggle mode (0 = no timeout)
 leader = "command"           # leader word for commands (or "voice", "computer", etc.)
 key_repeat_ms = 50           # key repeat rate for hold mode (ms between presses)
-quiet = false                # suppress verbose output (set true once comfortable)
+verbose = true               # set false once comfortable (errors always print)
 
 [commands]
 "open terminal" = "kitty"
@@ -345,6 +346,32 @@ div = "<div>|</div>"
 **Supported hotkeys:** F1-F12, ScrollLock, Pause, PrintScreen, Insert, Home, End, PageUp, PageDown, Num0-Num9
 
 Config hot-reloads when you save - no restart needed.
+
+### VAD Mode (Voice Activity Detection)
+
+For hands-free operation, enable VAD mode using Silero VAD:
+
+```toml
+# Switch to VAD mode
+activation_mode = "vad"    # "hotkey" (default) or "vad"
+
+# VAD settings
+vad_sensitivity = 0.5      # 0.0-1.0, higher = more sensitive
+vad_silence_ms = 500       # Wait this long after speech stops
+vad_min_speech_ms = 100    # Ignore sounds shorter than this
+```
+
+**How VAD mode works:**
+1. Press hotkey to start listening (toggles on/off)
+2. Speak naturally - VAD detects when you start talking
+3. When you stop speaking (silence for `vad_silence_ms`), it transcribes
+4. Automatically ready for next utterance
+
+**Tips:**
+- Start with `vad_sensitivity = 0.5` and adjust based on your environment
+- Increase `vad_silence_ms` if it cuts off mid-pause (try 700-1000)
+- Decrease it for faster response (try 300-400)
+- Increase `vad_min_speech_ms` if background noise triggers false positives
 
 ## Models
 
@@ -406,6 +433,7 @@ There are several voice control tools out there. Here's how SS9K compares:
 | **Text Wrappers**    | ✅              | ✅           | ❌           | ❌          | ❌             | ❌             |
 | **Custom Commands**  | ✅ TOML         | ✅ .talon    | ⚠️            | ❌          | ❌             | ❌             |
 | **GPU Acceleration** | ✅              | ✅           | ❌           | ✅          | ✅             | ❌             |
+| **VAD Mode**         | ✅ Silero       | ✅           | ✅           | ❌          | ❌             | ❌             |
 | **Learning Curve**   | Low             | High         | Medium       | Low         | Low            | Low            |
 | **Setup Complexity** | Low             | High         | Medium       | Low         | Medium         | Low            |
 
