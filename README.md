@@ -43,6 +43,12 @@ Press a key, speak, release. Your words appear at cursor. Or launch apps, contro
 - **Quiet mode** - Suppress verbose output once you're comfortable
 - **Multiple models** - tiny (75MB) to large (3GB), pick your speed/accuracy tradeoff
 - **VAD mode** - Voice Activity Detection for hands-free operation using Silero VAD
+- **Wake word** - Optional wake word filtering in VAD mode (e.g., "computer")
+- **Command hotkey** - Dedicated key that auto-prefixes leader word (F11 default)
+- **Scratch that** - Undo last typed text: "command scratch that"
+- **Audio feedback** - Optional beeps for recording start/stop
+- **Logging** - Optional dictation and error logging to files
+- **Language listing** - Say "command languages" to see all 99 supported languages
 - **Cross-platform ready** - Built with portable Rust crates
 
 ## Installation
@@ -292,6 +298,16 @@ If the wrapper value contains `|`, it splits into left/right. Otherwise, the val
 
 Works with number words (one-twenty) or digits. Handles common mishearings like "to"→2, "for"→4.
 
+**Scratch That** (undo last typed text):
+
+| Input                   | Effect                              |
+|-------------------------|-------------------------------------|
+| `command scratch that`  | Delete everything you just typed    |
+| `command scratch`       | Same as above                       |
+| `command undo`          | Same as above                       |
+
+Deletes the exact number of characters from your last dictation, insert, or wrap. Useful for when Whisper mishears something—just say "scratch that" and try again.
+
 **Mishearing tolerance**: SS9K handles common Whisper transcription errors automatically:
 - `caret` → also matches "carrot", "karet"
 - `colon` → also matches "colin", "cologne"
@@ -309,15 +325,22 @@ Create `~/.config/ss9k/config.toml`:
 
 ```toml
 model = "small"              # tiny, base, small, medium, large
-language = "en"              # ISO 639-1 code
+language = "en"              # ISO 639-1 code (say "command languages" for full list)
 threads = 4                  # whisper inference threads
 device = ""                  # audio device (empty = auto-detect)
 hotkey = "F12"               # see supported hotkeys below
+command_hotkey = "F11"       # auto-prefixes leader word (say "enter" → "command enter")
 hotkey_mode = "hold"         # hold (release to stop) or toggle (press again to stop)
 toggle_timeout_secs = 0      # auto-stop after N seconds in toggle mode (0 = no timeout)
 leader = "command"           # leader word for commands (or "voice", "computer", etc.)
 key_repeat_ms = 50           # key repeat rate for hold mode (ms between presses)
+processing_timeout_secs = 30 # abort if transcription takes too long (0 = no timeout)
 verbose = true               # set false once comfortable (errors always print)
+audio_feedback = false       # beep on recording start, double beep on transcription done
+
+# Optional logging (supports ~ for home directory)
+dictation_log = ""           # log all transcriptions: "~/.local/share/ss9k/dictation.log"
+error_log = ""               # log errors to file: "~/.local/share/ss9k/error.log"
 
 [commands]
 "open terminal" = "kitty"
@@ -356,9 +379,13 @@ For hands-free operation, enable VAD mode using Silero VAD:
 activation_mode = "vad"    # "hotkey" (default) or "vad"
 
 # VAD settings
-vad_sensitivity = 0.5      # 0.0-1.0, higher = more sensitive
-vad_silence_ms = 500       # Wait this long after speech stops
-vad_min_speech_ms = 100    # Ignore sounds shorter than this
+vad_sensitivity = 0.9      # 0.0-1.0, higher = more sensitive
+vad_silence_ms = 1000      # Wait this long after speech stops before processing
+vad_min_speech_ms = 200    # Ignore sounds shorter than this (filters coughs, clicks)
+vad_speech_pad_ms = 300    # Extra padding to catch trailing words
+
+# Optional wake word (only process speech starting with this word)
+wake_word = ""             # e.g., "computer", "hey jarvis" (empty = process all speech)
 ```
 
 **How VAD mode works:**
@@ -367,11 +394,14 @@ vad_min_speech_ms = 100    # Ignore sounds shorter than this
 3. When you stop speaking (silence for `vad_silence_ms`), it transcribes
 4. Automatically ready for next utterance
 
+**Wake word mode:** If `wake_word` is set, utterances that don't start with the wake word are silently ignored. Great for filtering out background conversations. The wake word is automatically stripped from the output.
+
 **Tips:**
-- Start with `vad_sensitivity = 0.5` and adjust based on your environment
-- Increase `vad_silence_ms` if it cuts off mid-pause (try 700-1000)
-- Decrease it for faster response (try 300-400)
+- Default sensitivity (0.9) works well for most environments
+- Increase `vad_silence_ms` if it cuts off mid-pause (try 1200-1500)
+- Decrease it for faster response (try 600-800)
 - Increase `vad_min_speech_ms` if background noise triggers false positives
+- `vad_speech_pad_ms` adds buffer at the end of speech - increase if words get cut off
 
 ## Models
 
@@ -471,7 +501,9 @@ Built with:
 - [rdev](https://github.com/Narsil/rdev) - Global hotkey capture
 - [enigo](https://github.com/enigo-rs/enigo) - Keyboard simulation
 - [rubato](https://github.com/HEnquist/rubato) - Audio resampling
+- [voice_activity_detector](https://github.com/nkeenan38/voice_activity_detector) - Silero VAD for hands-free mode
 - [chrono](https://github.com/chronotope/chrono) - Date/time for insert placeholders
+- [shellexpand](https://github.com/netvl/shellexpand) - Path expansion for logging
 - [arc-swap](https://github.com/vorner/arc-swap) - Lock-free config hot-reload
 - [notify](https://github.com/notify-rs/notify) - File watching
 

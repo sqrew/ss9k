@@ -133,7 +133,6 @@ error_log = ""
 # Aliases for common misrecognitions
 # Maps what whisper hears -> what you meant
 [aliases]
-"command," = "command"
 # e max" = "emacs"
 # "fire fox" = "firefox"
 # "libre wolf" = "librewolf"

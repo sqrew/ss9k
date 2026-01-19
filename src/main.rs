@@ -885,8 +885,11 @@ fn main() -> Result<()> {
                             let text_lower = text.to_lowercase();
                             let wake_lower = cfg.wake_word.to_lowercase();
                             if text_lower.starts_with(&wake_lower) {
-                                // Strip wake word and any following whitespace
-                                text[cfg.wake_word.len()..].trim_start().to_string()
+                                // Strip wake word, then any leading punctuation and whitespace
+                                // Whisper sometimes adds "Computer, ..." or "Computer. ..." etc.
+                                text[cfg.wake_word.len()..]
+                                    .trim_start_matches(|c: char| c.is_whitespace() || c.is_ascii_punctuation())
+                                    .to_string()
                             } else {
                                 text
                             }
