@@ -68,7 +68,7 @@ pub struct Config {
     #[serde(default)]
     pub wrappers: HashMap<String, String>,
     #[serde(default)]
-    pub quiet: bool,
+    pub verbose: bool,
 }
 
 impl Default for Config {
@@ -90,7 +90,7 @@ impl Default for Config {
             aliases: HashMap::new(),
             inserts: HashMap::new(),
             wrappers: HashMap::new(),
-            quiet: false,
+            verbose: true,
         }
     }
 }
@@ -238,9 +238,9 @@ key_repeat_ms = 50
 # Tip: If you hit timeouts often, try model = "tiny" or "base"
 processing_timeout_secs = 30
 
-# Suppress verbose output (processing, resampling, transcription logs)
-# Errors still print. Set true once you're comfortable with the tool.
-quiet = false
+# Verbose logging (processing, resampling, transcription details)
+# Errors always print regardless. Set false once you're comfortable with the tool.
+verbose = true
 
 # Audio feedback (system beep)
 # Single beep when recording starts, double beep when transcription completes
@@ -452,17 +452,17 @@ fn main() -> Result<()> {
             println!("[SS9K] 🔧 Processor thread started");
             for audio_data in audio_rx {
                 let cfg = config.load();
-                let quiet = cfg.quiet;
+                let verbose = cfg.verbose;
                 let timeout_secs = cfg.processing_timeout_secs;
 
                 let start_time = std::time::Instant::now();
-                if !quiet {
+                if verbose {
                     println!("[SS9K] 🔄 Processing {} samples...", audio_data.len());
                 }
 
                 match resample_audio(&audio_data, sample_rate, WHISPER_SAMPLE_RATE) {
                     Ok(resampled) => {
-                        if !quiet {
+                        if verbose {
                             println!("[SS9K] 🔄 Resampled to {} samples at 16kHz", resampled.len());
                         }
 
@@ -511,7 +511,7 @@ fn main() -> Result<()> {
                                     text
                                 };
 
-                                if !quiet {
+                                if verbose {
                                     println!("[SS9K] 📝 Transcription ({:.1}s): {}", elapsed, text);
                                 }
                                 if !text.is_empty() {

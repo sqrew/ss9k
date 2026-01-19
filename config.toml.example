@@ -31,7 +31,7 @@ hotkey = "F12"
 # Example: with command_hotkey = "F11", pressing F11 and saying "enter"
 # is the same as pressing F12 and saying "command enter"
 # Leave empty to disable
-command_hotkey = ""
+command_hotkey = "F11"
 
 # Hotkey mode: "hold" (release to stop) or "toggle" (press again to stop)
 # Applies to both hotkey and command_hotkey
@@ -56,9 +56,9 @@ key_repeat_ms = 50
 # Tip: If you hit timeouts often, try model = "tiny" or "base"
 processing_timeout_secs = 30
 
-# Suppress verbose output (processing, resampling, transcription logs)
-# Errors still print. Set true once you're comfortable with the tool.
-quiet = false
+# Verbose logging (processing, resampling, transcription details)
+# Errors always print regardless. Set false once you're comfortable with the tool.
+verbose = true
 
 # Audio feedback (system beep)
 # Single beep when recording starts, double beep when transcription completes
