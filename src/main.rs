@@ -173,8 +173,9 @@ impl Config {
 # Tip: Use "tiny" or "base" on older/weaker CPUs
 model = "small"
 
-# Language for transcription
-# Use ISO 639-1 codes: en, es, fr, de, ja, zh, etc.
+# Language for transcription (ISO 639-1 codes)
+# Say "command languages" or "command language list" for full list
+# Or see: https://github.com/openai/whisper#available-models-and-languages
 language = "en"
 
 # Number of threads for whisper inference

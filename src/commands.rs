@@ -1023,9 +1023,12 @@ pub fn execute_single_builtin_command(enigo: &mut Enigo, cmd: &str) -> Result<bo
             println!("[SS9K] 🔇 Command: Mute Toggle");
         }
 
-        // Help & Config
+        // Help, Config & Info
         "help" => {
             print_help();
+        }
+        "languages" | "language list" | "list languages" => {
+            print_languages();
         }
         "config" | "settings" | "edit config" => {
             let config_path = dirs::config_dir()
@@ -1289,8 +1292,55 @@ pub fn print_help() {
     println!("║                          screaming, caps, lower, math, code, ║");
     println!("║                          alternating, swearing, off          ║");
     println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("║ INFO:       [leader] languages - list supported languages      ║");
     println!("║ CONFIG:     ~/.config/ss9k/config.toml                       ║");
     println!("║ DOCS:       https://github.com/sqrew/ss9k                    ║");
+    println!("╚══════════════════════════════════════════════════════════════╝");
+    println!();
+}
+
+/// Print supported languages for Whisper
+pub fn print_languages() {
+    println!();
+    println!("╔══════════════════════════════════════════════════════════════╗");
+    println!("║              SS9K Supported Languages (Whisper)              ║");
+    println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("║ Set in config.toml: language = \"en\"                         ║");
+    println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("║ af - Afrikaans      el - Greek          nl - Dutch          ║");
+    println!("║ am - Amharic        en - English        no - Norwegian      ║");
+    println!("║ ar - Arabic         es - Spanish        pa - Punjabi        ║");
+    println!("║ as - Assamese       et - Estonian       pl - Polish         ║");
+    println!("║ az - Azerbaijani    eu - Basque         pt - Portuguese     ║");
+    println!("║ ba - Bashkir        fa - Persian        ro - Romanian       ║");
+    println!("║ be - Belarusian     fi - Finnish        ru - Russian        ║");
+    println!("║ bg - Bulgarian      fo - Faroese        sa - Sanskrit       ║");
+    println!("║ bn - Bengali        fr - French         sd - Sindhi         ║");
+    println!("║ bo - Tibetan        gl - Galician       si - Sinhala        ║");
+    println!("║ br - Breton         gu - Gujarati       sk - Slovak         ║");
+    println!("║ bs - Bosnian        ha - Hausa          sl - Slovenian      ║");
+    println!("║ ca - Catalan        haw - Hawaiian      sn - Shona          ║");
+    println!("║ cs - Czech          he - Hebrew         so - Somali         ║");
+    println!("║ cy - Welsh          hi - Hindi          sq - Albanian       ║");
+    println!("║ da - Danish         hr - Croatian       sr - Serbian        ║");
+    println!("║ de - German         ht - Haitian        su - Sundanese      ║");
+    println!("║ el - Greek          hu - Hungarian      sv - Swedish        ║");
+    println!("║ hy - Armenian       id - Indonesian     sw - Swahili        ║");
+    println!("║ is - Icelandic      it - Italian        ta - Tamil          ║");
+    println!("║ ja - Japanese       jw - Javanese       te - Telugu         ║");
+    println!("║ ka - Georgian       kk - Kazakh         tg - Tajik          ║");
+    println!("║ km - Khmer          kn - Kannada        th - Thai           ║");
+    println!("║ ko - Korean         la - Latin          tl - Tagalog        ║");
+    println!("║ lb - Luxembourgish  ln - Lingala        tr - Turkish        ║");
+    println!("║ lo - Lao            lt - Lithuanian     tt - Tatar          ║");
+    println!("║ lv - Latvian        mg - Malagasy       uk - Ukrainian      ║");
+    println!("║ mi - Maori          mk - Macedonian     ur - Urdu           ║");
+    println!("║ ml - Malayalam      mn - Mongolian      uz - Uzbek          ║");
+    println!("║ mr - Marathi        ms - Malay          vi - Vietnamese     ║");
+    println!("║ mt - Maltese        my - Myanmar        yi - Yiddish        ║");
+    println!("║ ne - Nepali         yo - Yoruba         zh - Chinese        ║");
+    println!("╠══════════════════════════════════════════════════════════════╣");
+    println!("║ Full list: https://github.com/openai/whisper#available-models║");
     println!("╚══════════════════════════════════════════════════════════════╝");
     println!();
 }
