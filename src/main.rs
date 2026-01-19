@@ -12,7 +12,8 @@ use notify::{recommended_watcher, RecursiveMode, Watcher};
 use rdev::{listen, Event, EventType, Key as RdevKey};
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
@@ -57,6 +58,40 @@ fn beep_done() {
     beep();
 }
 
+/// Get current timestamp string
+fn timestamp() -> String {
+    chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string()
+}
+
+/// Log a transcription to the dictation log file
+fn log_dictation(path: &str, text: &str) {
+    if path.is_empty() { return; }
+    let expanded = shellexpand::tilde(path);
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(expanded.as_ref()) {
+        let _ = writeln!(file, "[{}] {}", timestamp(), text);
+    }
+}
+
+/// Log an error to both stderr and the error log file
+fn log_error(path: &str, message: &str) {
+    eprintln!("[SS9K] ❌ {}", message);
+    if path.is_empty() { return; }
+    let expanded = shellexpand::tilde(path);
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(expanded.as_ref()) {
+        let _ = writeln!(file, "[{}] [ERROR] {}", timestamp(), message);
+    }
+}
+
+/// Log a warning to both stderr and the error log file
+fn log_warn(path: &str, message: &str) {
+    eprintln!("[SS9K] ⚠️ {}", message);
+    if path.is_empty() { return; }
+    let expanded = shellexpand::tilde(path);
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(expanded.as_ref()) {
+        let _ = writeln!(file, "[{}] [WARN] {}", timestamp(), message);
+    }
+}
+
 /// Configuration for SS9K
 #[derive(Debug, Deserialize, Clone)]
 #[serde(default)]
@@ -81,6 +116,9 @@ pub struct Config {
     pub vad_min_speech_ms: u64,    // Minimum speech before valid
     pub vad_speech_pad_ms: u64,    // Padding added to end of speech
     pub wake_word: String,         // Wake word for VAD mode (empty = disabled)
+    // Logging
+    pub dictation_log: String,     // Path to log transcriptions (empty = disabled)
+    pub error_log: String,         // Path to log errors (empty = disabled)
     #[serde(default)]
     pub commands: HashMap<String, String>,
     #[serde(default)]
@@ -115,6 +153,9 @@ impl Default for Config {
             vad_min_speech_ms: 200,                // Filter brief noises
             vad_speech_pad_ms: 300,                // Pad end of speech to catch trailing words
             wake_word: String::new(),              // Empty = no wake word required
+            // Logging defaults
+            dictation_log: String::new(),          // Empty = disabled
+            error_log: String::new(),              // Empty = disabled
             commands: HashMap::new(),
             aliases: HashMap::new(),
             inserts: HashMap::new(),
@@ -717,7 +758,7 @@ fn main() -> Result<()> {
                             let _ = wake_word_tx.send(found);
                         }
                         Err(e) => {
-                            eprintln!("[SS9K] ⚠️ Wake word check failed: {}", e);
+                            log_warn(&cfg.error_log, &format!("Wake word check failed: {}", e));
                             // On error, assume wake word found (don't reject)
                             let _ = wake_word_tx.send(true);
                         }
@@ -742,7 +783,7 @@ fn main() -> Result<()> {
                                 r
                             }
                             Err(e) => {
-                                eprintln!("[SS9K] ❌ Resample error: {}", e);
+                                log_error(&cfg.error_log, &format!("Resample error: {}", e));
                                 continue;
                             }
                         }
@@ -789,7 +830,7 @@ fn main() -> Result<()> {
                             }
                         }
                         Err(e) => {
-                            eprintln!("[SS9K] ⚠️ Wake word check failed: {}", e);
+                            log_warn(&cfg.error_log, &format!("Wake word check failed: {}", e));
                             // Continue anyway - don't reject on error
                         }
                     }
@@ -812,13 +853,12 @@ fn main() -> Result<()> {
                         Ok(result) => result,
                         Err(mpsc::RecvTimeoutError::Timeout) => {
                             let elapsed = start_time.elapsed().as_secs_f32();
-                            eprintln!("[SS9K] ⏱️ TIMEOUT: Processing exceeded {}s limit (ran for {:.1}s)", timeout_secs, elapsed);
-                            eprintln!("[SS9K] 💡 Tip: Try a smaller model (tiny/base) or increase processing_timeout_secs");
+                            log_warn(&cfg.error_log, &format!("TIMEOUT: Processing exceeded {}s limit (ran for {:.1}s). Tip: Try a smaller model (tiny/base) or increase processing_timeout_secs", timeout_secs, elapsed));
                             COMMAND_MODE.store(false, Ordering::SeqCst); // Reset command mode
                             continue;
                         }
                         Err(mpsc::RecvTimeoutError::Disconnected) => {
-                            eprintln!("[SS9K] ❌ Transcription thread crashed");
+                            log_error(&cfg.error_log, "Transcription thread crashed");
                             COMMAND_MODE.store(false, Ordering::SeqCst);
                             continue;
                         }
@@ -857,6 +897,10 @@ fn main() -> Result<()> {
                         if verbose {
                             println!("[SS9K] 📝 Transcription ({:.1}s): {}", elapsed, text);
                         }
+
+                        // Log to dictation log if configured
+                        log_dictation(&cfg.dictation_log, &text);
+
                         if !text.is_empty() {
                             // Update key repeat rate from config
                             set_key_repeat_ms(cfg.key_repeat_ms);
@@ -864,16 +908,16 @@ fn main() -> Result<()> {
                             match Enigo::new(&Settings::default()) {
                                 Ok(mut enigo) => {
                                     if let Err(e) = execute_command(&mut enigo, &text, &cfg.leader, &cfg.commands, &cfg.aliases, &cfg.inserts, &cfg.wrappers) {
-                                        eprintln!("[SS9K] ❌ Command/Type error: {}", e);
+                                        log_error(&cfg.error_log, &format!("Command/Type error: {}", e));
                                     } else if cfg.audio_feedback {
                                         beep_done();
                                     }
                                 }
-                                Err(e) => eprintln!("[SS9K] ❌ Enigo init error: {}", e),
+                                Err(e) => log_error(&cfg.error_log, &format!("Enigo init error: {}", e)),
                             }
                         }
                     }
-                    Err(e) => eprintln!("[SS9K] ❌ Transcription error ({:.1}s): {}", elapsed, e),
+                    Err(e) => log_error(&cfg.error_log, &format!("Transcription error ({:.1}s): {}", elapsed, e)),
                 }
             }
             println!("[SS9K] 🔧 Processor thread exiting");

@@ -101,6 +101,24 @@ vad_speech_pad_ms = 300
 # Leave empty to process all detected speech
 wake_word = ""
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# LOGGING - Optional file logging for debugging and history
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Dictation log - record all transcriptions to a file
+# Useful for: debugging misrecognitions, finding alias candidates, voice notes
+# Supports ~ for home directory
+# Leave empty to disable
+dictation_log = ""
+# dictation_log = "~/.local/share/ss9k/dictation.log"
+
+# Error log - record errors and warnings to a file
+# Errors also print to stderr, this just adds file persistence
+# Useful for: debugging issues when running in background
+# Leave empty to disable
+error_log = ""
+# error_log = "~/.local/share/ss9k/error.log"
+
 # Custom voice commands
 # Maps spoken phrase -> shell command
 # Supports $ENV_VAR expansion (e.g., $TERMINAL, $BROWSER, $EDITOR)
@@ -115,7 +133,8 @@ wake_word = ""
 # Aliases for common misrecognitions
 # Maps what whisper hears -> what you meant
 [aliases]
-# "e max" = "emacs"
+"command," = "command"
+# e max" = "emacs"
 # "fire fox" = "firefox"
 # "libre wolf" = "librewolf"
 # "kit tea" = "kitty"

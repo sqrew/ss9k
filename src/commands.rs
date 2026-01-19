@@ -13,7 +13,7 @@ use enigo::{Enigo, Key as EnigoKey, Keyboard, Settings};
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -64,6 +64,7 @@ pub static HOLD_THREAD_RUNNING: AtomicBool = AtomicBool::new(false);
 pub static KEY_REPEAT_MS: AtomicU64 = AtomicU64::new(50);
 pub static CURRENT_MODE: std::sync::LazyLock<Mutex<CaseMode>> =
     std::sync::LazyLock::new(|| Mutex::new(CaseMode::Off));
+pub static LAST_TYPED_LEN: AtomicUsize = AtomicUsize::new(0);
 
 /// Normalize text by applying aliases (e.g., "e max" -> "emacs")
 pub fn normalize_aliases(text: &str, aliases: &HashMap<String, String>) -> String {
@@ -692,6 +693,7 @@ pub fn execute_command(
             if let Some(template) = inserts.get(name) {
                 let expanded = expand_placeholders(template);
                 enigo.text(&expanded)?;
+                LAST_TYPED_LEN.store(expanded.chars().count(), Ordering::SeqCst);
                 println!("[SS9K] 📋 Inserted '{}': {}", name, expanded.chars().take(50).collect::<String>());
                 return Ok(true);
             } else {
@@ -719,6 +721,7 @@ pub fn execute_command(
                 };
                 let wrapped = format!("{}{}{}", left, wrap_text, right);
                 enigo.text(&wrapped)?;
+                LAST_TYPED_LEN.store(wrapped.chars().count(), Ordering::SeqCst);
                 println!("[SS9K] 🎁 Wrapped '{}': {}", wrapper_name, wrapped);
                 return Ok(true);
             } else {
@@ -744,6 +747,9 @@ pub fn execute_command(
     // Default: type the text with case mode applied
     let output = apply_case_mode(&aliased);
     enigo.text(&output)?;
+
+    // Track length for "scratch that" undo
+    LAST_TYPED_LEN.store(output.chars().count(), Ordering::SeqCst);
 
     let mode = get_case_mode();
     if mode != CaseMode::Off {
@@ -800,6 +806,21 @@ pub fn execute_builtin_command(enigo: &mut Enigo, cmd: &str) -> Result<bool> {
     }
     if let Some(release_key) = base_cmd.strip_prefix("release ") {
         return execute_release(enigo, release_key.trim());
+    }
+
+    // Scratch that - undo last typed text
+    if base_cmd == "scratch that" || base_cmd == "undo" || base_cmd == "scratch" {
+        let len = LAST_TYPED_LEN.swap(0, Ordering::SeqCst);
+        if len > 0 {
+            for _ in 0..len {
+                enigo.key(EnigoKey::Backspace, enigo::Direction::Click)?;
+            }
+            println!("[SS9K] ⏪ Scratched {} character(s)", len);
+            return Ok(true);
+        } else {
+            eprintln!("[SS9K] ⚠️ Nothing to scratch");
+            return Ok(false);
+        }
     }
 
     if let Some(mode_name) = base_cmd.strip_prefix("mode ") {
