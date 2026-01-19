@@ -139,8 +139,121 @@ impl Config {
             }
         }
 
+        // No config found - create one at the default location
+        if let Some(config_dir) = dirs::config_dir() {
+            let ss9k_dir = config_dir.join("ss9k");
+            let config_path = ss9k_dir.join("config.toml");
+
+            // Create directory if needed
+            if let Err(e) = fs::create_dir_all(&ss9k_dir) {
+                eprintln!("[SS9K] Failed to create config directory: {}", e);
+            } else {
+                // Write default config
+                if let Err(e) = fs::write(&config_path, Self::default_config_content()) {
+                    eprintln!("[SS9K] Failed to write default config: {}", e);
+                } else {
+                    println!("[SS9K] Created default config at: {:?}", config_path);
+                    println!("[SS9K] Edit this file to customize your settings!");
+                    return (Self::default(), Some(config_path));
+                }
+            }
+        }
+
         println!("[SS9K] Using default config");
         (Self::default(), None)
+    }
+
+    fn default_config_content() -> &'static str {
+        r##"# SuperScreecher9000 Configuration
+# Edit this file to customize your settings.
+# Changes are hot-reloaded - no restart needed!
+
+# Model to use: tiny, base, small, medium, large
+# Larger = more accurate but slower
+# Tip: Use "tiny" or "base" on older/weaker CPUs
+model = "small"
+
+# Language for transcription
+# Use ISO 639-1 codes: en, es, fr, de, ja, zh, etc.
+language = "en"
+
+# Number of threads for whisper inference
+# More threads = faster on multi-core CPUs
+threads = 4
+
+# Specific audio device name (partial match)
+# Leave empty for auto-detection
+# Example: "Microphone" or "Blue Yeti"
+device = ""
+
+# Hotkey to trigger recording (dictation mode)
+# Options: F1-F12, ScrollLock, Pause, PrintScreen, Insert, Home, End, PageUp, PageDown, Num0-Num9
+hotkey = "F12"
+
+# Command hotkey - alternate key that auto-prefixes with leader word
+# Use this to speak commands without saying "command" first
+# Example: with command_hotkey = "F11", pressing F11 and saying "enter"
+# is the same as pressing F12 and saying "command enter"
+# Leave empty to disable
+command_hotkey = ""
+
+# Hotkey mode: "hold" (release to stop) or "toggle" (press again to stop)
+# Applies to both hotkey and command_hotkey
+hotkey_mode = "hold"
+
+# Auto-stop timeout for toggle mode (0 = no timeout)
+toggle_timeout_secs = 0
+
+# Leader word for voice commands
+# All commands require this prefix: "command enter", "command emoji smile", etc.
+# Change to whatever feels natural: "voice", "computer", "hey", etc.
+leader = "command"
+
+# Key repeat rate for hold mode (milliseconds between key presses)
+# Lower = faster repeat, higher = slower
+# Used when you say "command hold w" to spam a key
+key_repeat_ms = 50
+
+# Processing timeout in seconds (0 = no timeout)
+# If transcription takes longer than this, it will be aborted
+# Useful for weak CPUs that might hang on larger models
+# Tip: If you hit timeouts often, try model = "tiny" or "base"
+processing_timeout_secs = 30
+
+# Suppress verbose output (processing, resampling, transcription logs)
+# Errors still print. Set true once you're comfortable with the tool.
+quiet = false
+
+# Custom voice commands
+# Maps spoken phrase -> shell command
+# Supports $ENV_VAR expansion (e.g., $TERMINAL, $BROWSER, $EDITOR)
+[commands]
+# "open terminal" = "$TERMINAL"
+# "open browser" = "$BROWSER"
+# "open firefox" = "firefox"
+# "screenshot" = "flameshot gui"
+
+# Aliases for common misrecognitions
+# Maps what whisper hears -> what you meant
+[aliases]
+# "e max" = "emacs"
+# "fire fox" = "firefox"
+
+# Text snippets for quick insertion
+# Say "command insert <name>" to type the snippet
+# Supports placeholders: {date}, {time}, {datetime}, {shell:cmd}
+[inserts]
+# email = "you@example.com"
+# sig = "Best regards,\nYour Name"
+
+# Text wrappers for quick wrapping
+# Say "command wrap <name> <text>" to wrap text
+# Use | to separate left/right: "parens" = "(|)"
+[wrappers]
+# quotes = '"'
+# parens = "(|)"
+# brackets = "[|]"
+"##
     }
 
     pub fn load_from(path: &PathBuf) -> Option<Self> {
