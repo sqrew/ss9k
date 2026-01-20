@@ -67,11 +67,30 @@ pub static CURRENT_MODE: std::sync::LazyLock<Mutex<CaseMode>> =
 pub static LAST_TYPED_LEN: AtomicUsize = AtomicUsize::new(0);
 
 /// Normalize text by applying aliases (e.g., "e max" -> "emacs")
+/// Preserves original case for non-aliased text (important for languages with meaningful capitals)
 pub fn normalize_aliases(text: &str, aliases: &HashMap<String, String>) -> String {
-    let mut result = text.to_lowercase();
+    let mut result = text.to_string();
+
     for (from, to) in aliases {
-        result = result.replace(&from.to_lowercase(), to);
+        // Case-insensitive search, but preserve case of non-matched parts
+        let from_lower = from.to_lowercase();
+        let mut new_result = String::with_capacity(result.len());
+        let mut search_start = 0;
+
+        while let Some(pos) = result[search_start..].to_lowercase().find(&from_lower) {
+            let abs_pos = search_start + pos;
+            // Append everything before the match (preserving case)
+            new_result.push_str(&result[search_start..abs_pos]);
+            // Append the replacement
+            new_result.push_str(to);
+            // Move past the matched portion
+            search_start = abs_pos + from.len();
+        }
+        // Append any remaining text after the last match
+        new_result.push_str(&result[search_start..]);
+        result = new_result;
     }
+
     result
 }
 

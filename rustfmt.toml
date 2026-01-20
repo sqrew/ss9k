@@ -1,0 +1,22 @@
+# rustfmt configuration for SS9K
+# Run: cargo fmt
+
+# Use Rust 2024 edition style
+edition = "2024"
+
+# Max line width
+max_width = 120
+
+# Use spaces, not tabs
+hard_tabs = false
+tab_spaces = 4
+
+# Put single-expression functions on one line
+fn_single_line = true
+
+# Format string literals
+format_strings = false
+
+# Imports
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
